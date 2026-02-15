@@ -4,7 +4,7 @@
 
 while true; do
   clear
-  echo "=== Open Beads ==="
+  echo "📋 Open Beads"
   echo ""
   if ! command -v bd &>/dev/null; then
     echo "  bd command not found."
@@ -16,6 +16,6 @@ while true; do
     bd list 2>/dev/null || echo "  (bd list failed)"
   fi
   echo ""
-  echo "Last refresh: $(date '+%Y-%m-%d %H:%M:%S')"
+  echo "↻ $(date '+%H:%M:%S')"
   sleep 10
 done

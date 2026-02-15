@@ -35,15 +35,13 @@ Use **teams** (TeamCreate) so you can message agents mid-flight via SendMessage.
 
 On request, provide a table. Also update `.agent-status.md` in the repo root whenever agent state changes (dispatch, completion, merge). This file is displayed in the Zellij dashboard.
 
-Format for `.agent-status.md`:
+Format for `.agent-status.md` -- **TSV (tab-separated), no markdown pipes or separators**:
 ```
-=== Agent Status ===
-
-| Agent | Ticket | Duration | Summary | ETA | Needs Help? |
-|-------|--------|----------|---------|-----|-------------|
+Agent	Ticket	Duration	Summary	ETA	Needs Help?
+my-agent	abc	2 min	Working on X	~5 min	No
 ```
 
-Check agent output files via Read/Bash, or message agents directly for status.
+Check agent output files via Read/Bash, or message agents directly for status. Remove completed agents from `.agent-status.md` after cleanup (merge + worktree removal + ticket close).
 
 ## Merging
 
