@@ -36,19 +36,17 @@ Add to `~/.claude/settings.json`:
   "permissions": {
     "allow": [
       "Bash(git add:*)", "Bash(git commit:*)", "Bash(git push:*)",
-      "Bash(git pull:*)", "Bash(git checkout:*)", "Bash(git merge:*)",
-      "Bash(git branch:*)", "Bash(git stash:*)", "Bash(git diff:*)",
-      "Bash(git log:*)", "Bash(git worktree:*)", "Bash(git cherry-pick:*)",
-      "Bash(git status:*)", "Bash(chmod:*)", "Bash(xargs:*)",
-      "Bash(mkdir:*)", "Bash(cat:*)", "Bash(sleep:*)", "Bash(tail:*)",
-      "Bash(printf:*)", "Bash(cd:*)", "Bash(bd:*)", "Bash(zellij:*)",
-      "Bash(npm ci:*)", "Bash(npm install:*)", "Bash(npm run:*)",
-      "Bash(npx tsc:*)", "Bash(npx vitest:*)", "Bash(npx prisma:*)",
-      "Bash(npx tsx:*)", "Bash(node:*)", "WebSearch"
+      "Bash(git pull:*)", "Bash(git merge:*)", "Bash(git branch:*)",
+      "Bash(git diff:*)", "Bash(git log:*)", "Bash(git status:*)",
+      "Bash(git worktree:*)",
+      "Bash(bd:*)", "Bash(zellij:*)",
+      "Bash(printf:*)", "Bash(mkdir:*)", "Bash(sleep:*)"
     ]
   }
 }
 ```
+
+Then add your own project-specific permissions (build tools, test runners, etc.).
 
 ## License
 
