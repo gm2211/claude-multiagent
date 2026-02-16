@@ -8,6 +8,11 @@ export LANG=en_US.UTF-8
 
 BD="${HOME}/.local/bin/bd"
 
+# --- Terminal device ---
+# Always read keyboard input from /dev/tty so it works under bash -c wrappers
+# and Zellij pane launches where stdin may not be the terminal.
+TTY=/dev/tty
+
 # --- ANSI colors ---
 RST=$'\033[0m'
 BOLD=$'\033[1m'
@@ -18,19 +23,20 @@ YELLOW=$'\033[33m'
 RED=$'\033[31m'
 CYAN=$'\033[36m'
 GRAY=$'\033[90m'
+WHITE=$'\033[37m'
 
 # --- State ---
 MODE="list"           # list | detail
 CURSOR=0              # selected row index
 SCROLL=0              # first visible row index
 TICKET_IDS=()         # parallel arrays from parsed bd output
-TICKET_LINES=()       # display lines (colorized, prefix-stripped)
+TICKET_LINES=()       # display lines (no indent prefix — indent applied at render)
 TICKET_RAW=()         # raw lines for parsing
 DETAIL_TEXT=""         # cached detail output
 NEED_REDRAW=1         # flag to trigger redraw
 TERM_ROWS=0
 TERM_COLS=0
-HEADER_LINES=3        # lines reserved for header
+HEADER_LINES=4        # lines reserved for header (title + info + separator + blank)
 FOOTER_LINES=2        # lines reserved for footer
 
 # --- Terminal helpers ---
@@ -43,14 +49,14 @@ get_term_size() {
 enter_tui() {
   tput smcup 2>/dev/null        # alternate screen buffer
   tput civis 2>/dev/null        # hide cursor
-  stty -echo -icanon 2>/dev/null
+  stty -echo -icanon < "$TTY" 2>/dev/null
   printf '\033[?25l'            # belt-and-suspenders cursor hide
 }
 
 exit_tui() {
   tput cnorm 2>/dev/null        # show cursor
   tput rmcup 2>/dev/null        # restore main screen
-  stty echo icanon 2>/dev/null
+  stty echo icanon < "$TTY" 2>/dev/null
   printf '\033[?25h'
   # kill background jobs
   kill $(jobs -p) 2>/dev/null
@@ -66,13 +72,13 @@ load_tickets() {
   local raw_output
   if ! command -v "$BD" &>/dev/null && ! command -v bd &>/dev/null; then
     TICKET_IDS=()
-    TICKET_LINES=("  bd command not found." "  Install beads to use this panel.")
+    TICKET_LINES=("bd command not found." "Install beads to use this panel.")
     TICKET_RAW=()
     return
   fi
   if [ ! -d ".beads" ]; then
     TICKET_IDS=()
-    TICKET_LINES=("  No beads initialized in this repo." "  Run 'bd init' to get started.")
+    TICKET_LINES=("No beads initialized in this repo." "Run 'bd init' to get started.")
     TICKET_RAW=()
     return
   fi
@@ -80,7 +86,7 @@ load_tickets() {
   raw_output=$("$BD" list --pretty 2>/dev/null)
   if [[ $? -ne 0 ]] || [[ -z "$raw_output" ]]; then
     TICKET_IDS=()
-    TICKET_LINES=("  (bd list failed or returned empty)")
+    TICKET_LINES=("(bd list failed or returned empty)")
     TICKET_RAW=()
     return
   fi
@@ -111,11 +117,8 @@ load_tickets() {
     fi
 
     # Parse ticket lines: <status_symbol> <full-id> <priority_symbol> <priority> <title...>
-    # The status symbol is one of: ○ ◐ ● ✓ ❄
-    # Bash ${var:offset:len} counts characters not bytes, so :0:1 gets the symbol
     local status_char full_id rest
     status_char="${line:0:1}"
-    # After "symbol + space" the rest starts at character index 2
     local after_sym="${line:2}"
     full_id=$(echo "$after_sym" | awk '{print $1}')
     rest="${after_sym#"$full_id" }"
@@ -137,10 +140,16 @@ load_tickets() {
       *)    colored_sym="${status_char}" ;;
     esac
 
-    # Rebuild the display line with short ID and colored status
-    # Format: <colored_sym> <short_id>  <rest>
-    local display_line
-    display_line=$(printf "  %s %-4s %s" "$colored_sym" "$short_id" "$rest")
+    # Build display line WITHOUT leading indent (indent handled at render time).
+    # Use manual padding for short_id since printf %-Ns miscounts ANSI escapes.
+    local padded_id="$short_id"
+    local id_len=${#short_id}
+    while (( id_len < 5 )); do
+      padded_id+=" "
+      (( id_len++ ))
+    done
+
+    local display_line="${colored_sym} ${padded_id} ${rest}"
 
     TICKET_IDS+=("$full_id")
     TICKET_LINES+=("$display_line")
@@ -169,29 +178,36 @@ render_list() {
   # Parse summary for header
   local header_info=""
   if [[ -n "$SUMMARY_LINE" ]]; then
-    # Extract counts from "Total: 7 issues (5 open, 2 in progress)"
     local counts
     counts=$(echo "$SUMMARY_LINE" | sed -E 's/^Total: [0-9]+ issues \((.+)\)/\1/')
     header_info="$counts"
   fi
 
-  # Header
-  buf+=$(printf '\033[H')  # move to top-left
-  buf+="${BOLD}Beads${RST}"
+  # Clear screen and move to top
+  buf+=$(printf '\033[H\033[2J')
+
+  # Header line 1: title + counts + timestamp
+  buf+=" ${BOLD}Beads${RST}"
   if [[ -n "$header_info" ]]; then
-    buf+="  ${DIM}(${header_info})${RST}"
+    buf+="  ${DIM}${header_info}${RST}"
   fi
-  # Right-align timestamp
   local ts
   ts=$(date '+%H:%M:%S')
-  local header_text="Beads  (${header_info})"
-  local header_plain_len=${#header_text}
   local ts_col=$(( TERM_COLS - 10 ))
-  if (( ts_col > header_plain_len + 2 )); then
+  if (( ts_col > 30 )); then
     buf+=$(printf '\033[1;%dH' "$ts_col")
-    buf+="${DIM}@ ${ts}${RST}"
+    buf+="${DIM}${ts}${RST}"
   fi
-  buf+=$'\n\n'
+  buf+=$'\n'
+
+  # Header line 2: separator
+  local sep=""
+  local sep_len=$(( TERM_COLS - 2 ))
+  (( sep_len > 60 )) && sep_len=60
+  for (( s = 0; s < sep_len; s++ )); do
+    sep+="─"
+  done
+  buf+=" ${DIM}${sep}${RST}"$'\n'
 
   # Visible area for tickets
   local visible_rows=$(( TERM_ROWS - HEADER_LINES - FOOTER_LINES ))
@@ -207,9 +223,9 @@ render_list() {
   fi
 
   if (( count == 0 )); then
-    # No tickets — show placeholder lines
+    # No tickets -- show placeholder lines
     for line in "${TICKET_LINES[@]}"; do
-      buf+="${line}"$'\n'
+      buf+="  ${DIM}${line}${RST}"$'\033[K\n'
     done
   else
     local end=$(( SCROLL + visible_rows ))
@@ -218,12 +234,16 @@ render_list() {
     fi
     for (( i = SCROLL; i < end; i++ )); do
       if (( i == CURSOR )); then
-        buf+="${REV}${TICKET_LINES[$i]}${RST}"
+        # Selected row: reverse video, full width padding
+        buf+="${REV} ${TICKET_LINES[$i]}"
+        # Pad to terminal width so highlight spans full row
+        buf+=$'\033[K'
+        buf+="${RST}"
       else
-        buf+="  ${TICKET_LINES[$i]:2}"  # keep indent but no reverse
+        buf+="  ${TICKET_LINES[$i]}"
+        buf+=$'\033[K'
       fi
-      # Clear to end of line to avoid artifacts
-      buf+=$'\033[K\n'
+      buf+=$'\n'
     done
     # Fill remaining visible rows with blank lines
     local rendered=$(( end - SCROLL ))
@@ -232,10 +252,10 @@ render_list() {
     done
   fi
 
-  # Footer — pinned to bottom
+  # Footer -- pinned to bottom
   buf+=$(printf '\033[%d;1H' "$(( TERM_ROWS - 1 ))")
   buf+=$'\033[K'
-  buf+="${DIM}↑↓/jk navigate  ⏎ details  r refresh  q quit${RST}"
+  buf+=" ${DIM}j/k${RST} navigate  ${DIM}enter${RST} details  ${DIM}r${RST} refresh  ${DIM}q${RST} quit"
 
   # Flush buffer all at once
   printf '%s' "$buf"
@@ -245,7 +265,7 @@ render_detail() {
   local buf=""
   get_term_size
 
-  buf+=$(printf '\033[H')  # move to top-left
+  buf+=$(printf '\033[H\033[2J')
 
   # Render detail text with line limit
   local line_count=0
@@ -254,7 +274,7 @@ render_detail() {
     if (( line_count >= max_lines )); then
       break
     fi
-    buf+="${line}"$'\033[K\n'
+    buf+=" ${line}"$'\033[K\n'
     (( line_count++ ))
   done <<< "$DETAIL_TEXT"
 
@@ -266,7 +286,7 @@ render_detail() {
   # Footer
   buf+=$(printf '\033[%d;1H' "$(( TERM_ROWS - 1 ))")
   buf+=$'\033[K'
-  buf+="${DIM}⏎/q back${RST}"
+  buf+=" ${DIM}enter/q${RST} back"
 
   printf '%s' "$buf"
 }
@@ -323,7 +343,6 @@ start_bg_refresh() {
       fswatch --latency 1 --one-per-batch \
         ".beads/issues.jsonl" ".beads/beads.db-wal" 2>/dev/null \
       | while read -r _; do
-        # Signal main loop to refresh (only in list mode)
         kill -USR1 $$ 2>/dev/null
       done
     fi
@@ -361,24 +380,22 @@ while true; do
     render
   fi
 
-  # Read a single character with timeout (allows checking BG_REFRESH)
-  if ! read -rsn1 -t 0.2 key 2>/dev/null; then
-    # Timeout — loop to check BG_REFRESH
+  # Read a single character with timeout from /dev/tty
+  if ! read -rsn1 -t 0.2 key < "$TTY" 2>/dev/null; then
     continue
   fi
 
   # Handle escape sequences (arrows)
   if [[ "$key" == $'\x1b' ]]; then
-    read -rsn1 -t 0.05 seq1 2>/dev/null
+    read -rsn1 -t 0.05 seq1 < "$TTY" 2>/dev/null
     if [[ "$seq1" == "[" ]]; then
-      read -rsn1 -t 0.05 seq2 2>/dev/null
+      read -rsn1 -t 0.05 seq2 < "$TTY" 2>/dev/null
       case "$seq2" in
         A) key="UP" ;;
         B) key="DOWN" ;;
         *) key="" ;;
       esac
     elif [[ -z "$seq1" ]]; then
-      # Bare Escape
       key="ESC"
     else
       key=""
