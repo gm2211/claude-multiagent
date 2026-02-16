@@ -59,6 +59,7 @@ Use **teams** (TeamCreate) so you can message agents mid-flight via SendMessage.
   ```
 - Prompt must include: bd ticket ID, acceptance criteria, repo path, worktree conventions, test/build commands, and the **reporting instructions** below
 - **Course-correction:** Use `SendMessage` to nudge stuck agents (e.g., "check git history" or "focus on file X"). Agents receive messages between turns.
+- **Tracking course-corrections:** When you course-correct an agent mid-flight via `SendMessage`, create a new bd ticket for the additional work. Also update the agent's status file in `.agent-status.d/<agent-name>` immediately to reflect the new scope — don't wait for the agent's next self-report. This keeps both the ticket board and the dashboard pane current.
 
 ### Agent Reporting Instructions
 
@@ -92,6 +93,29 @@ Include verbatim in every agent prompt:
 > Use short ticket IDs (omit the common prefix like `claude-plugins-`). Get the current unix timestamp via Bash: `date +%s`.
 >
 > When you finish your task, delete your status file: remove `.agent-status.d/<your-agent-name>`.
+
+### Status Manager Agent
+
+Spawn a lightweight background manager agent at the start of each session (after the team is created). This agent acts as a fallback for detecting stuck agents that have stopped self-reporting. It is cheap because it only acts once per minute and only messages the coordinator when something is off.
+
+**Manager agent config:** model `haiku`, type: `general-purpose`, mode: `bypassPermissions`
+
+**Prompt template for the manager agent:**
+
+> You are a status monitor. Your only job is to watch `.agent-status.d/` for stale agent status files.
+>
+> **Loop (every 60 seconds):**
+> 1. Get the current unix timestamp: `date +%s`
+> 2. Read every file in `.agent-status.d/`
+> 3. For each file, parse the TSV line and compare the unix timestamp (3rd field) to the current time
+> 4. If any agent's timestamp is more than 180 seconds (3 minutes) old, send a message to the coordinator: "agent X hasn't updated in Y minutes — may be stuck"
+> 5. Sleep 60 seconds (`sleep 60`), then repeat
+>
+> **Rules:**
+> - Do NOT modify or delete any status files — you are read-only
+> - Only message the coordinator when something looks wrong
+> - If `.agent-status.d/` is empty, sleep and check again next cycle
+> - When you receive a shutdown message, approve it and exit
 
 ## Status Updates
 
