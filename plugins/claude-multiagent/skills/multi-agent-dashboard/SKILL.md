@@ -1,5 +1,5 @@
 ---
-name: agents-dashboard
+name: multi-agent-dashboard
 description: Open Zellij panes showing agent status and open tickets alongside your Claude session
 ---
 
