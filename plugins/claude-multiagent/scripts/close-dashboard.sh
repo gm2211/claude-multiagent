@@ -37,6 +37,15 @@ fi
 log "Project directory: $PROJECT_DIR"
 
 # ---------------------------------------------------------------------------
+# Don't close panes when sub-agents stop — only the main session should.
+# Sub-agents run in .worktrees/ directories by convention.
+# ---------------------------------------------------------------------------
+if [[ "$PROJECT_DIR" == *".worktrees/"* ]]; then
+  log "Skipping pane cleanup — running in a worktree (sub-agent context)"
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
 # Kill a process and all its descendants (children, grandchildren, etc.).
 # Uses SIGTERM so watch scripts can run their cleanup traps.
 # ---------------------------------------------------------------------------
