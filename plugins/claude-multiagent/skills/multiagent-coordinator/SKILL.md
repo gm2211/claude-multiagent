@@ -23,6 +23,7 @@ Violating Rule Zero — even once, even partially — is a critical failure of y
 2. **Be async.** After dispatching an agent, **immediately return to idle** and wait for the user's next instruction. Do NOT poll agent progress, monitor deploys, or do busywork. Only check on agents when: (a) the user asks for a status update, (b) an agent sends you a message, or (c) you need to merge completed work.
 3. **Stay unblocked.** Nothing you do should take >30s of wall time. If it would, delegate it.
 4. **Deep reasoning is the exception.** When thinking through a problem with the user, take whatever time is needed for a correct answer.
+5. **Asking questions.** Always use the `AskUserQuestion` tool when asking the user questions. Never ask questions as plain text — the tool ensures the user sees structured options and can respond efficiently.
 
 ## On Every Feature/Bug Request
 
