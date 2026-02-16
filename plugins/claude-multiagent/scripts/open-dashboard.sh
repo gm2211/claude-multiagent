@@ -85,6 +85,9 @@ if [[ -z "${ZELLIJ:-}" ]]; then
   exit 0
 fi
 
+# Only open dashboard panes inside a git repository
+git rev-parse --is-inside-work-tree &>/dev/null || exit 0
+
 focused_tab=$(get_focused_tab_layout) || exit 0
 
 # --- Multiple Claude sessions detection ---
@@ -125,32 +128,40 @@ if $all_present; then
   exit 0
 fi
 
-# Open missing panes. When both are missing we create the standard layout
-# (beads on the right, agents below beads, deploys below agents).
-# When only one is missing we add it in the right direction relative to
-# the existing split.
+# Open missing panes. The target layout has all three dashboard panes
+# stacked vertically on the RIGHT side:
+#
+#   ┌──────────────┬────────────────┐
+#   │              │  watch-beads   │
+#   │              ├────────────────┤
+#   │   Claude     │  watch-agents  │
+#   │              ├────────────────┤
+#   │              │  watch-deploys │
+#   └──────────────┴────────────────┘
+#
+# new-pane moves focus to the newly created pane, so we track where
+# focus ends up after each step.
 
 if [[ "$has_beads" -eq 0 ]]; then
+  # Create beads pane to the right of Claude. Focus moves to beads.
   zellij action new-pane --name "dashboard-beads" --direction right \
     -- bash -c "cd '${PROJECT_DIR}' && '${SCRIPT_DIR}/watch-beads.sh'" 2>/dev/null || true
 fi
 
 if [[ "$has_agents" -eq 0 ]]; then
-  if [[ "$has_beads" -eq 0 ]]; then
-    # We just created the beads pane to the right; move focus there
-    # so the agents pane opens below it.
-    zellij action move-focus right 2>/dev/null || true
-  else
-    # Beads pane already exists on the right -- move focus there first.
-    zellij action move-focus right 2>/dev/null || true
-  fi
+  # Ensure focus is on the right side (beads) before splitting downward.
+  zellij action move-focus right 2>/dev/null || true
 
   zellij action new-pane --name "dashboard-agents" --direction down \
     -- bash -c "cd '${PROJECT_DIR}' && '${SCRIPT_DIR}/watch-agents.sh'" 2>/dev/null || true
+  # Focus is now on the agents pane.
 fi
 
 if $deploy_pane_enabled && [[ "$has_deploys" -eq 0 ]]; then
-  # Deploy pane goes below agents. Move focus down to the agents pane area.
+  # Ensure focus is on the right side, then move to the bottom-most pane
+  # so deploys is created below agents (not below Claude).
+  zellij action move-focus right 2>/dev/null || true
+  zellij action move-focus down 2>/dev/null || true
   zellij action move-focus down 2>/dev/null || true
 
   zellij action new-pane --name "dashboard-deploys" --direction down \
