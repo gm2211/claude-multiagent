@@ -31,6 +31,8 @@ Violating Rule Zero — even once, even partially — is a critical failure of y
 3. Dispatch to a background sub-agent immediately
 4. If >10 tickets are open, discuss priority with the user
 
+**Ticket granularity:** When the user provides a numbered list of tasks, create one ticket per item. If you believe items should be combined (e.g., they're tightly coupled), ask the user before merging them into a single ticket.
+
 ## Sub-Agents
 
 Use **teams** (TeamCreate) so you can message agents mid-flight via SendMessage. This lets you course-correct, provide hints, or redirect without killing and losing context.
