@@ -1,0 +1,17 @@
+{
+  "name": "gm2211-plugins",
+  "owner": {
+    "name": "gm2211"
+  },
+  "metadata": {
+    "description": "Claude Code plugins by gm2211"
+  },
+  "plugins": [
+    {
+      "name": "claude-multiagent",
+      "source": "./plugins/claude-multiagent",
+      "description": "Turns Claude Code into an async coordinator that delegates work to background sub-agents in git worktrees",
+      "version": "1.0.0"
+    }
+  ]
+}

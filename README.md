@@ -4,11 +4,12 @@ A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin that turn
 
 ## Install
 
-```bash
-claude plugin add -- /path/to/claude-multiagent
-# or from GitHub:
-claude plugin add -- https://github.com/gm2211/claude-multiagent
 ```
+/plugin marketplace add gm2211/claude-plugins
+/plugin install claude-multiagent@gm2211-plugins
+```
+
+> **Note:** The marketplace name is `gm2211-plugins` (the repo can host multiple plugins). The plugin name is `claude-multiagent`.
 
 ## What You Get
 
