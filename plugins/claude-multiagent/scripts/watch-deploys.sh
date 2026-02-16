@@ -154,16 +154,19 @@ config_get_nested() {
   return 1
 }
 
-# List available provider scripts
+# List available provider scripts (any executable file in providers/)
 list_providers() {
   local -a providers=()
   if [ -d "$PROVIDERS_DIR" ]; then
-    for f in "$PROVIDERS_DIR"/*.sh; do
-      [ -f "$f" ] || continue
-      local name
-      name=$(basename "$f" .sh)
-      [ "$name" = "README" ] && continue
-      providers+=("$name")
+    for f in "$PROVIDERS_DIR"/*; do
+      [ -f "$f" ] && [ -x "$f" ] || continue
+      local fname
+      fname=$(basename "$f")
+      # Skip README and other non-provider files
+      case "$fname" in
+        README*|*.md) continue ;;
+      esac
+      providers+=("$fname")
     done
   fi
   printf '%s\n' "${providers[@]}"
@@ -172,7 +175,7 @@ list_providers() {
 # Get the provider display name
 provider_display_name() {
   local provider="$1"
-  local script="${PROVIDERS_DIR}/${provider}.sh"
+  local script="${PROVIDERS_DIR}/${provider}"
   if [ -x "$script" ]; then
     "$script" name 2>/dev/null || printf '%s' "$provider"
   else
@@ -183,7 +186,7 @@ provider_display_name() {
 # Get provider config fields as lines: key|label|required|default
 provider_config_fields() {
   local provider="$1"
-  local script="${PROVIDERS_DIR}/${provider}.sh"
+  local script="${PROVIDERS_DIR}/${provider}"
   if [ ! -x "$script" ]; then
     return 1
   fi
@@ -217,7 +220,7 @@ provider_config_fields() {
 fetch_deploys() {
   local provider
   provider=$(config_get "provider") || return 1
-  local script="${PROVIDERS_DIR}/${provider}.sh"
+  local script="${PROVIDERS_DIR}/${provider}"
   if [ ! -x "$script" ]; then
     return 1
   fi
@@ -445,7 +448,7 @@ render_unconfigured() {
   fi
 
   printf '  Or create %s.deploy-watch.json%s manually:\n' "$C_CYAN" "$C_RESET"
-  printf '  {"provider": "render", "render": {"serviceId": "srv-xxx"}}\n'
+  printf '  {"provider": "render.py", "render.py": {"serviceId": "srv-xxx"}}\n'
 }
 
 render_help() {
