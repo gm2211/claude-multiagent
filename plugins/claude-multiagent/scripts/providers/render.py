@@ -12,28 +12,15 @@ RENDER_API_BASE = "https://api.render.com/v1"
 TIMEOUT = 10
 
 
-def load_config():
-    """Load config from .deploy-watch.json in current directory."""
-    config_path = os.path.join(os.getcwd(), ".deploy-watch.json")
-    if not os.path.isfile(config_path):
-        print("Error: .deploy-watch.json not found in current directory", file=sys.stderr)
-        sys.exit(1)
-
-    with open(config_path) as f:
-        try:
-            data = json.load(f)
-        except json.JSONDecodeError as e:
-            print(f"Error: invalid JSON in .deploy-watch.json: {e}", file=sys.stderr)
-            sys.exit(1)
-
-    render_cfg = data.get("config", {}).get("render", {})
-    service_id = render_cfg.get("serviceId")
+def get_config_from_env():
+    """Read provider config from DEPLOY_WATCH_* environment variables."""
+    service_id = os.environ.get("DEPLOY_WATCH_SERVICEID", "")
     if not service_id:
-        print("Error: config.render.serviceId is required in .deploy-watch.json", file=sys.stderr)
+        print("Error: DEPLOY_WATCH_SERVICEID is not set", file=sys.stderr)
         sys.exit(1)
 
-    api_key_env = render_cfg.get("apiKeyEnv", "RENDER_API_KEY")
-    api_key = os.environ.get(api_key_env)
+    api_key_env = os.environ.get("DEPLOY_WATCH_APIKEYENV", "RENDER_API_KEY")
+    api_key = os.environ.get(api_key_env, "")
     if not api_key:
         print(f"Error: environment variable {api_key_env} is not set", file=sys.stderr)
         sys.exit(1)
@@ -73,20 +60,19 @@ STATUS_MAP = {
 
 
 def iso_to_epoch(iso_str):
-    """Convert an ISO 8601 timestamp to unix epoch integer.
+    """Convert an ISO 8601 timestamp to unix epoch string.
 
     Handles formats like 2024-01-15T12:30:00Z and 2024-01-15T12:30:00.000Z.
-    Returns None if the input is None or empty.
+    Returns empty string if the input is None or empty.
     """
     if not iso_str:
-        return None
-    # Strip trailing Z and any fractional seconds for parsing
+        return ""
     s = iso_str.replace("Z", "+00:00")
     try:
         dt = datetime.fromisoformat(s)
-        return int(dt.timestamp())
+        return str(int(dt.timestamp()))
     except (ValueError, TypeError):
-        return None
+        return ""
 
 
 def cmd_name():
@@ -98,16 +84,14 @@ def cmd_config():
         "fields": [
             {
                 "key": "serviceId",
-                "label": "Service ID",
-                "description": "Render service ID (e.g. srv-xxx)",
+                "label": "Service ID (srv-xxx)",
                 "required": True,
             },
             {
                 "key": "apiKeyEnv",
-                "label": "API key env var",
-                "description": "Environment variable containing your Render API key",
-                "default": "RENDER_API_KEY",
+                "label": "API Key env var",
                 "required": False,
+                "default": "RENDER_API_KEY",
             },
         ]
     }
@@ -115,19 +99,24 @@ def cmd_config():
 
 
 def cmd_list():
-    service_id, api_key = load_config()
+    service_id, api_key = get_config_from_env()
 
     # Get service details for the URL
-    service = api_get(f"/services/{service_id}", api_key)
-    service_url = None
-    if isinstance(service, dict):
-        service_details = service.get("service", service)
-        service_url = service_details.get("serviceDetails", {}).get("url") or service_details.get("url")
+    service_url = ""
+    try:
+        service = api_get(f"/services/{service_id}", api_key)
+        if isinstance(service, dict):
+            service_url = (
+                service.get("serviceDetails", {}).get("url", "")
+                or service.get("url", "")
+            )
+    except SystemExit:
+        pass  # Non-fatal; continue without service URL
 
     # Get recent deploys
-    deploys_raw = api_get(f"/services/{service_id}/deploys?limit=15", api_key)
+    deploys_raw = api_get(f"/services/{service_id}/deploys?limit=10", api_key)
 
-    # The API may return a list of objects or a list of {deploy: ...} wrappers
+    # The API returns a list of {deploy: ...} wrapper objects
     deploys = []
     if isinstance(deploys_raw, list):
         for item in deploys_raw:
@@ -144,17 +133,18 @@ def cmd_list():
 
         # Build timestamps
         created_at = iso_to_epoch(deploy.get("createdAt"))
-        updated_at = iso_to_epoch(deploy.get("updatedAt"))
         finished_at = iso_to_epoch(deploy.get("finishedAt"))
 
-        # Determine build vs deploy timing
-        # Render doesn't separate build/deploy timestamps explicitly,
-        # so we approximate: build_started = createdAt, and use
-        # finishedAt for both build_finished and deploy_finished when live.
-        record = {}
-        record["commit"] = commit_obj.get("id", "")[:7] if commit_obj.get("id") else ""
-        record["message"] = commit_obj.get("message", "")
-        record["author"] = commit_obj.get("createdAt", "")  # Render doesn't expose author email directly
+        # Extract commit info
+        commit_id = commit_obj.get("id", "")
+        commit_msg = (commit_obj.get("message", "") or "").split("\n")[0]
+
+        record = {
+            "commit": commit_id[:7] if commit_id else "",
+            "message": commit_msg,
+            "author": deploy.get("creator", {}).get("name", "")
+                      or deploy.get("creator", {}).get("email", ""),
+        }
 
         # Map build/deploy status
         if mapped_status in ("pending", "building"):
@@ -167,7 +157,6 @@ def cmd_list():
             record["build_status"] = "success"
             record["deploy_status"] = "live"
         elif mapped_status == "failed":
-            # Could be build or deploy failure
             if status_raw == "build_failed":
                 record["build_status"] = "failed"
                 record["deploy_status"] = "pending"
@@ -181,17 +170,12 @@ def cmd_list():
             record["build_status"] = mapped_status
             record["deploy_status"] = mapped_status
 
-        # Timestamps
-        if created_at is not None:
-            record["build_started"] = str(created_at)
-        if mapped_status in ("live", "failed", "cancelled") and finished_at is not None:
-            record["build_finished"] = str(finished_at)
-            if mapped_status == "live":
-                record["deploy_started"] = str(finished_at)
-                record["deploy_finished"] = str(finished_at)
-        elif mapped_status == "deploying" and updated_at is not None:
-            record["build_finished"] = str(updated_at)
-            record["deploy_started"] = str(updated_at)
+        # Timestamps — build_started = createdAt, deploy_finished = finishedAt
+        record["build_started"] = created_at
+        if mapped_status in ("live",) and finished_at:
+            record["deploy_finished"] = finished_at
+        else:
+            record["deploy_finished"] = ""
 
         if service_url:
             record["service_url"] = service_url
