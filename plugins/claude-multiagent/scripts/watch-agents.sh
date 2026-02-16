@@ -1,6 +1,10 @@
 #!/bin/bash
-# Refreshes agent status every 5 seconds
-# Reads .agent-status.md (TSV) and renders a pretty Unicode table
+# Watches .agent-status.md and renders a pretty Unicode table
+# Uses fswatch for efficient event-driven updates, falls back to polling
+
+# Force UTF-8 for Unicode box-drawing characters
+export LC_ALL=en_US.UTF-8
+export LANG=en_US.UTF-8
 
 elapsed_since() {
   # Convert a unix timestamp to human-readable elapsed time
@@ -138,25 +142,46 @@ render_table() {
   echo "$bot_border"
 }
 
-while true; do
-  clear
-  # Re-check each loop in case the file appears later
+resolve_status_file() {
   if [ -f ".agent-status.md" ]; then
-    STATUS_FILE=".agent-status.md"
+    echo ".agent-status.md"
   elif [ -f "$HOME/.claude/agent-status.md" ]; then
-    STATUS_FILE="$HOME/.claude/agent-status.md"
-  else
-    STATUS_FILE=""
+    echo "$HOME/.claude/agent-status.md"
   fi
+}
 
+render_screen() {
+  clear
+  local status_file
+  status_file=$(resolve_status_file)
   echo "⚡ Agent Status"
   echo ""
-  if [ -n "$STATUS_FILE" ] && [ -f "$STATUS_FILE" ]; then
-    render_table "$STATUS_FILE"
+  if [ -n "$status_file" ] && [ -f "$status_file" ]; then
+    render_table "$status_file"
   else
     echo "  No agents running."
   fi
   echo ""
   echo "↻ $(date '+%H:%M:%S')"
+}
+
+# Initial render
+render_screen
+
+if command -v fswatch &>/dev/null; then
+  # Event-driven: watch both possible locations, re-render on change
+  # --latency 0.3: debounce rapid writes (e.g. printf > file)
+  # --one-per-batch: single event per batch of changes
+  fswatch --latency 0.3 --one-per-batch \
+    ".agent-status.md" "$HOME/.claude/agent-status.md" 2>/dev/null \
+  | while read -r _; do
+    render_screen
+  done
+  # fswatch exited (e.g. neither file exists yet) -- fall through to polling
+fi
+
+# Fallback: poll every 5s (also used while waiting for status file to appear)
+while true; do
   sleep 5
+  render_screen
 done
