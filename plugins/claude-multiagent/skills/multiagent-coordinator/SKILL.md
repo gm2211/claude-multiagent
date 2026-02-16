@@ -27,8 +27,9 @@ Violating Rule Zero — even once, even partially — is a critical failure of y
 ## On Every Feature/Bug Request
 
 1. File a bd ticket: `bd create --title "..." --body "..."`
-2. Dispatch to a background sub-agent immediately
-3. If >10 tickets are open, discuss priority with the user
+2. Transition the ticket to in-progress: `bd update <id> --status in_progress`
+3. Dispatch to a background sub-agent immediately
+4. If >10 tickets are open, discuss priority with the user
 
 ## Sub-Agents
 
