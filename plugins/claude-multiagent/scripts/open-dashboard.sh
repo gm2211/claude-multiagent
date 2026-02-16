@@ -144,7 +144,7 @@ fi
 
 if [[ "$has_beads" -eq 0 ]]; then
   # Create beads pane to the right of Claude. Focus moves to beads.
-  zellij action new-pane --name "dashboard-beads" --direction right \
+  zellij action new-pane --name "dashboard-beads" --close-on-exit --direction right \
     -- bash -c "cd '${PROJECT_DIR}' && '${SCRIPT_DIR}/watch-beads.sh'" 2>/dev/null || true
 fi
 
@@ -152,7 +152,7 @@ if [[ "$has_agents" -eq 0 ]]; then
   # Ensure focus is on the right side (beads) before splitting downward.
   zellij action move-focus right 2>/dev/null || true
 
-  zellij action new-pane --name "dashboard-agents" --direction down \
+  zellij action new-pane --name "dashboard-agents" --close-on-exit --direction down \
     -- bash -c "cd '${PROJECT_DIR}' && '${SCRIPT_DIR}/watch-agents.sh'" 2>/dev/null || true
   # Focus is now on the agents pane.
 fi
@@ -164,7 +164,7 @@ if $deploy_pane_enabled && [[ "$has_deploys" -eq 0 ]]; then
   zellij action move-focus down 2>/dev/null || true
   zellij action move-focus down 2>/dev/null || true
 
-  zellij action new-pane --name "dashboard-deploys" --direction down \
+  zellij action new-pane --name "dashboard-deploys" --close-on-exit --direction down \
     -- bash -c "cd '${PROJECT_DIR}' && '${SCRIPT_DIR}/watch-deploys.sh'" 2>/dev/null || true
 fi
 
