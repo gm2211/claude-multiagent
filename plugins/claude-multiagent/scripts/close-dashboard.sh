@@ -19,6 +19,36 @@ log() {
 
 log "close-dashboard.sh invoked (PID=$$, ZELLIJ=${ZELLIJ:-unset}, PWD=${PWD})"
 
+# ---------------------------------------------------------------------------
+# Read the hook input JSON from stdin.
+# Claude Code passes a JSON object with hook_event_name, session_id, etc.
+# ---------------------------------------------------------------------------
+HOOK_INPUT=""
+if ! [ -t 0 ]; then
+  HOOK_INPUT=$(cat)
+fi
+
+HOOK_EVENT=""
+if [[ -n "$HOOK_INPUT" ]]; then
+  HOOK_EVENT=$(printf '%s' "$HOOK_INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null || true)
+fi
+
+log "Hook event: ${HOOK_EVENT:-unknown} (input length: ${#HOOK_INPUT})"
+
+# ---------------------------------------------------------------------------
+# Don't close panes when sub-agents stop — only the main session should.
+#
+# Primary check: the hook_event_name from stdin. Claude Code sends "Stop"
+# for the main session and "SubagentStop" for sub-agents.
+#
+# Fallback check: the working directory. Sub-agents using worktrees run
+# in .worktrees/ directories. This catches edge cases where stdin is empty.
+# ---------------------------------------------------------------------------
+if [[ "$HOOK_EVENT" == "SubagentStop" ]]; then
+  log "Skipping pane cleanup — SubagentStop event (sub-agent terminated)"
+  exit 0
+fi
+
 # If not inside Zellij, bail silently
 if [[ -z "${ZELLIJ:-}" ]]; then
   log "Not inside Zellij — exiting."
@@ -36,10 +66,7 @@ fi
 
 log "Project directory: $PROJECT_DIR"
 
-# ---------------------------------------------------------------------------
-# Don't close panes when sub-agents stop — only the main session should.
-# Sub-agents run in .worktrees/ directories by convention.
-# ---------------------------------------------------------------------------
+# Fallback sub-agent check: worktree-based sub-agents run in .worktrees/
 if [[ "$PROJECT_DIR" == *".worktrees/"* ]]; then
   log "Skipping pane cleanup — running in a worktree (sub-agent context)"
   exit 0
