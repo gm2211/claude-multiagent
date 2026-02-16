@@ -110,7 +110,7 @@ Do this immediately after each merge -- don't let worktrees or tickets accumulat
 
 `bd` is a git-backed issue tracker at `~/.local/bin/bd`. Run `bd --help` for full command reference.
 
-**When to use:** Any work involving multiple steps. Run `bd init` once per repo, then `git config beads.role coordinator` to set your role, then `bd create` per task. Always `bd list` before creating to avoid duplicates.
+**When to use:** Any work involving multiple steps. Run `bd init` once per repo, then `git config beads.role maintainer` to set your role, then `bd create` per task. Always `bd list` before creating to avoid duplicates.
 
 **Interpreting the user:** "bd" or "beads" = use this tool.
 
