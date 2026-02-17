@@ -9,6 +9,7 @@ Keys: p = provider config, r = refresh, q = quit, ? = help
 
 import curses
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -22,6 +23,20 @@ import time
 
 POLL_INTERVAL = 30
 SPINNER_CHARS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+# ---------------------------------------------------------------------------
+# Debug logging — writes to /tmp/deploy-watch-tui.log
+# ---------------------------------------------------------------------------
+
+_log = logging.getLogger("deploy-watch-tui")
+_log.setLevel(logging.DEBUG)
+_log.propagate = False
+if not _log.handlers:
+    _fh = logging.FileHandler("/tmp/deploy-watch-tui.log")
+    _fh.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    ))
+    _log.addHandler(_fh)
 
 # Determine paths at startup using absolute references
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -145,10 +160,12 @@ def fetch_deploys():
     cfg = config_read()
     provider = cfg.get("provider")
     if not provider:
+        _log.debug("fetch_deploys: no provider configured")
         return []
 
     script = os.path.join(PROVIDERS_DIR, provider)
     if not os.access(script, os.X_OK):
+        _log.warning("fetch_deploys: provider script not executable: %s", script)
         return []
 
     # Build env vars from provider config section
@@ -162,12 +179,17 @@ def fetch_deploys():
         env_key = f"DEPLOY_WATCH_{key.upper()}"
         env[env_key] = str(val)
 
+    _log.debug("fetch_deploys: calling %s list", script)
     try:
         result = subprocess.run(
             [script, "list"], capture_output=True, text=True,
             timeout=30, env=env
         )
+        _log.debug("fetch_deploys: returncode=%d", result.returncode)
+        if result.stderr.strip():
+            _log.debug("fetch_deploys: stderr: %s", result.stderr.strip())
         if result.returncode != 0:
+            _log.warning("fetch_deploys: provider exited %d", result.returncode)
             return []
         records = []
         for line in result.stdout.strip().split("\n"):
@@ -177,9 +199,15 @@ def fetch_deploys():
             try:
                 records.append(json.loads(line))
             except json.JSONDecodeError:
+                _log.warning("fetch_deploys: bad JSON line: %s", line[:120])
                 continue
+        _log.debug("fetch_deploys: parsed %d records", len(records))
         return records
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except subprocess.TimeoutExpired:
+        _log.error("fetch_deploys: provider timed out after 30s")
+        return []
+    except FileNotFoundError:
+        _log.error("fetch_deploys: provider script not found: %s", script)
         return []
 
 
@@ -347,6 +375,7 @@ class DeployWatchApp:
 
     def do_refresh(self):
         """Fetch deploy data from the provider."""
+        _log.debug("do_refresh: starting")
         self.is_fetching = True
         self.fetch_error = ""
         try:
@@ -354,8 +383,10 @@ class DeployWatchApp:
             if records:
                 self.cached_records = records
             self.last_fetch_time = int(time.time())
+            _log.debug("do_refresh: got %d records", len(records))
         except Exception as e:
             self.fetch_error = str(e)
+            _log.error("do_refresh: exception: %s", e)
         finally:
             self.is_fetching = False
 

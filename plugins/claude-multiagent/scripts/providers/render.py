@@ -2,18 +2,36 @@
 """Render.com deploy provider for deploy-watch."""
 
 import json
+import logging
 import os
 import ssl
 import sys
+import traceback
 import urllib.request
 import urllib.error
 from datetime import datetime
 
+# ---------------------------------------------------------------------------
+# Debug logging — writes to /tmp/deploy-watch-render.log
+# ---------------------------------------------------------------------------
+
+_log = logging.getLogger("deploy-watch-render")
+_log.setLevel(logging.DEBUG)
+_log.propagate = False
+if not _log.handlers:
+    _fh = logging.FileHandler("/tmp/deploy-watch-render.log")
+    _fh.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    ))
+    _log.addHandler(_fh)
+
 try:
     import certifi
     SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+    _log.debug("SSL: using certifi (%s)", certifi.where())
 except ImportError:
     SSL_CONTEXT = None
+    _log.debug("SSL: certifi not available, SSL_CONTEXT=None")
 
 RENDER_API_BASE = "https://api.render.com/v1"
 TIMEOUT = 10
@@ -22,12 +40,14 @@ TIMEOUT = 10
 def get_config_from_env():
     """Read provider config from DEPLOY_WATCH_* environment variables."""
     service_id = os.environ.get("DEPLOY_WATCH_SERVICEID", "")
+    _log.debug("DEPLOY_WATCH_SERVICEID %s", "set" if service_id else "NOT SET")
     if not service_id:
         print("Error: DEPLOY_WATCH_SERVICEID is not set", file=sys.stderr)
         sys.exit(1)
 
     api_key_env = os.environ.get("DEPLOY_WATCH_APIKEYENV", "RENDER_DOT_COM_TOK")
     api_key = os.environ.get(api_key_env, "")
+    _log.debug("API key env var: %s (%s)", api_key_env, "set" if api_key else "NOT SET")
     if not api_key:
         print(
             f"Error: environment variable {api_key_env} is not set. "
@@ -43,18 +63,22 @@ def get_config_from_env():
 def api_get(path, api_key):
     """Make an authenticated GET request to the Render API."""
     url = f"{RENDER_API_BASE}{path}"
+    _log.debug("API GET %s", url)
     req = urllib.request.Request(url, headers={
         "Authorization": f"Bearer {api_key}",
         "Accept": "application/json",
     })
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT, context=SSL_CONTEXT) as resp:
+            _log.debug("API response %s %s", resp.status, url)
             return json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
         body = e.read().decode() if e.fp else ""
+        _log.error("API HTTP %s for %s: %s", e.code, url, body[:200])
         print(f"Error: Render API returned {e.code}: {body}", file=sys.stderr)
         sys.exit(1)
     except urllib.error.URLError as e:
+        _log.error("API URLError for %s: %s\n%s", url, e.reason, traceback.format_exc())
         print(f"Error: could not reach Render API: {e.reason}", file=sys.stderr)
         sys.exit(1)
 
@@ -123,7 +147,7 @@ def cmd_list():
                 or service.get("url", "")
             )
     except SystemExit:
-        pass  # Non-fatal; continue without service URL
+        _log.warning("Failed to fetch service details (non-fatal)")
 
     # Get recent deploys
     deploys_raw = api_get(f"/services/{service_id}/deploys?limit=10", api_key)
@@ -136,6 +160,8 @@ def cmd_list():
                 deploys.append(item["deploy"])
             else:
                 deploys.append(item)
+
+    _log.debug("Parsed %d deploy records", len(deploys))
 
     for deploy in deploys:
         status_raw = deploy.get("status", "")
@@ -196,20 +222,30 @@ def cmd_list():
 
 
 def main():
+    _log.debug("--- invoked: %s", " ".join(sys.argv))
+
     if len(sys.argv) < 2:
+        _log.error("No command given")
         print("Usage: render.py <name|config|list>", file=sys.stderr)
         sys.exit(1)
 
     cmd = sys.argv[1]
-    if cmd == "name":
-        cmd_name()
-    elif cmd == "config":
-        cmd_config()
-    elif cmd == "list":
-        cmd_list()
-    else:
-        print(f"Error: unknown command '{cmd}'", file=sys.stderr)
-        sys.exit(1)
+    try:
+        if cmd == "name":
+            cmd_name()
+        elif cmd == "config":
+            cmd_config()
+        elif cmd == "list":
+            cmd_list()
+        else:
+            _log.error("Unknown command: %s", cmd)
+            print(f"Error: unknown command '{cmd}'", file=sys.stderr)
+            sys.exit(1)
+    except SystemExit:
+        raise
+    except Exception:
+        _log.error("Unhandled exception:\n%s", traceback.format_exc())
+        raise
 
 
 if __name__ == "__main__":
