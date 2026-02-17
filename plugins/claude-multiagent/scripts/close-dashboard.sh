@@ -34,6 +34,7 @@ if [[ -n "$HOOK_INPUT" ]]; then
 fi
 
 log "Hook event: ${HOOK_EVENT:-unknown} (input length: ${#HOOK_INPUT})"
+log "Hook input (first 200 chars): ${HOOK_INPUT:0:200}"
 
 # ---------------------------------------------------------------------------
 # Don't close panes when sub-agents stop — only the main session should.
@@ -69,6 +70,66 @@ log "Project directory: $PROJECT_DIR"
 # Fallback sub-agent check: worktree-based sub-agents run in .worktrees/
 if [[ "$PROJECT_DIR" == *".worktrees/"* ]]; then
   log "Skipping pane cleanup — running in a worktree (sub-agent context)"
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Check if there's still an active Claude pane in the focused tab.
+# If so, another Claude session is still running — don't close panes.
+# ---------------------------------------------------------------------------
+
+# Extract the focused tab block from dump-layout output.
+get_focused_tab_layout() {
+  local layout
+  layout=$(zellij action dump-layout 2>/dev/null) || return 1
+
+  local in_focused=0
+  local depth=0
+  local result=""
+
+  while IFS= read -r line; do
+    if [[ $in_focused -eq 0 ]]; then
+      if [[ "$line" =~ ^[[:space:]]*tab[[:space:]].*focus=true ]]; then
+        in_focused=1
+        depth=1
+        result="$line"$'\n'
+      fi
+    else
+      result+="$line"$'\n'
+      local opens="${line//[^\{]/}"
+      local closes="${line//[^\}]/}"
+      depth=$(( depth + ${#opens} - ${#closes} ))
+      if [[ $depth -le 0 ]]; then
+        break
+      fi
+    fi
+  done <<< "$layout"
+
+  printf '%s' "$result"
+}
+
+# Count how many panes in the layout run the "claude" command.
+count_claude_panes() {
+  local layout="$1"
+  local count=0
+  while IFS= read -r line; do
+    if [[ "$line" =~ command=\"claude\" ]]; then
+      (( count++ ))
+    fi
+  done <<< "$layout"
+  echo "$count"
+}
+
+focused_tab=$(get_focused_tab_layout 2>/dev/null) || focused_tab=""
+claude_pane_count=0
+if [[ -n "$focused_tab" ]]; then
+  claude_pane_count=$(count_claude_panes "$focused_tab")
+fi
+
+log "Claude pane check: found $claude_pane_count Claude pane(s) in focused tab"
+
+if [[ "$claude_pane_count" -ge 1 ]]; then
+  log "Skipping pane cleanup — $claude_pane_count Claude pane(s) still active in tab"
   exit 0
 fi
 
