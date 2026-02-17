@@ -180,31 +180,40 @@ fi
 # new-pane moves focus to the newly created pane, so we track where
 # focus ends up after each step.
 
+# Launch panes in parallel. Each pane creation block runs in a background
+# subshell with a small stagger to preserve spatial layout ordering (each
+# new-pane is placed relative to the currently focused pane).
+
 if [[ "$has_beads" -eq 0 ]]; then
   # Create beads pane to the right of Claude. Focus moves to beads.
   zellij action new-pane --name "dashboard-beads" --close-on-exit --direction right \
     -- bash -c "cd '${PROJECT_DIR}' && '${SCRIPT_DIR}/watch-beads.py'" 2>/dev/null || true
 fi
 
-if [[ "$has_agents" -eq 0 ]]; then
-  # Ensure focus is on the right side (beads) before splitting downward.
-  zellij action move-focus right 2>/dev/null || true
+# The remaining panes split the right column downward; launch them in parallel.
+{
+  if [[ "$has_agents" -eq 0 ]]; then
+    # Ensure focus is on the right side (beads) before splitting downward.
+    zellij action move-focus right 2>/dev/null || true
 
-  zellij action new-pane --name "dashboard-agents" --close-on-exit --direction down \
-    -- python3 "${SCRIPT_DIR}/watch-agents.py" "${PROJECT_DIR}" 2>/dev/null || true
-  # Focus is now on the agents pane.
-fi
+    zellij action new-pane --name "dashboard-agents" --close-on-exit --direction down \
+      -- python3 "${SCRIPT_DIR}/watch-agents.py" "${PROJECT_DIR}" 2>/dev/null || true
+    # Focus is now on the agents pane.
+  fi
 
-if $deploy_pane_enabled && [[ "$has_deploys" -eq 0 ]]; then
-  # Ensure focus is on the right side, then move to the bottom-most pane
-  # so deploys is created below agents (not below Claude).
-  zellij action move-focus right 2>/dev/null || true
-  zellij action move-focus down 2>/dev/null || true
-  zellij action move-focus down 2>/dev/null || true
+  if $deploy_pane_enabled && [[ "$has_deploys" -eq 0 ]]; then
+    # Ensure focus is on the right side, then move to the bottom-most pane
+    # so deploys is created below agents (not below Claude).
+    zellij action move-focus right 2>/dev/null || true
+    zellij action move-focus down 2>/dev/null || true
+    zellij action move-focus down 2>/dev/null || true
 
-  zellij action new-pane --name "dashboard-deploys" --close-on-exit --direction down \
-    -- python3 "${SCRIPT_DIR}/watch-deploys.py" 2>/dev/null || true
-fi
+    zellij action new-pane --name "dashboard-deploys" --close-on-exit --direction down \
+      -- python3 "${SCRIPT_DIR}/watch-deploys.py" 2>/dev/null || true
+  fi
 
-# Return focus to the original (left) pane where Claude runs
-zellij action move-focus left 2>/dev/null || true
+  # Return focus to the original (left) pane where Claude runs
+  zellij action move-focus left 2>/dev/null || true
+} &
+# No wait — let agents+deploys panes finish in the background while the
+# session-start hook continues to produce its JSON output.

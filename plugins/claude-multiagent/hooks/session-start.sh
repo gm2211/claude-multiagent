@@ -10,15 +10,9 @@ PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # Read multiagent-coordinator skill content
 coordinator_content=$(cat "${PLUGIN_ROOT}/skills/multiagent-coordinator/SKILL.md" 2>&1 || echo "Error reading multiagent-coordinator skill")
 
-# Escape string for JSON embedding using bash parameter substitution.
+# Escape string for JSON embedding using jq (much faster than bash parameter substitution).
 escape_for_json() {
-    local s="$1"
-    s="${s//\\/\\\\}"
-    s="${s//\"/\\\"}"
-    s="${s//$'\n'/\\n}"
-    s="${s//$'\r'/\\r}"
-    s="${s//$'\t'/\\t}"
-    printf '%s' "$s"
+    jq -Rs . <<< "$1" | sed 's/^"//;s/"$//'
 }
 
 coordinator_escaped=$(escape_for_json "$coordinator_content")
