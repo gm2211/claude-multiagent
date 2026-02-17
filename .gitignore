@@ -3,4 +3,5 @@
 .agent-status.d/
 .beads/
 .DS_Store
+__pycache__/
 .deploy-watch.json

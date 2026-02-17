@@ -243,14 +243,32 @@ if [[ "$has_beads" -eq 0 ]]; then
   # Create beads pane to the right of Claude. Focus moves to beads.
   BEADS_TUI_DIR="${SCRIPT_DIR}/beads-tui"
   BDT_ARGS=(--db-path "${PROJECT_DIR}/.beads/beads.db" --bd-path "$(command -v bd)")
+
+  # When running from the plugin cache the git submodule directory is empty.
+  # Try the source repo's copy of the submodule as a fallback.
+  if [[ ! -d "${BEADS_TUI_DIR}/beads_tui" ]]; then
+    # Walk up from SCRIPT_DIR to find the plugin root, then look for the
+    # source checkout (e.g. <repo>/plugins/claude-multiagent/scripts/beads-tui).
+    _candidate="$(cd "${SCRIPT_DIR}/.." 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null || true)"
+    if [[ -z "$_candidate" ]]; then
+      # SCRIPT_DIR is in the cache (not a git repo).  Try the PROJECT_DIR
+      # repo which may contain the plugin source as a submodule / subtree.
+      _candidate="$(cd "${PROJECT_DIR}" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null || true)"
+    fi
+    if [[ -n "$_candidate" && -d "${_candidate}/plugins/claude-multiagent/scripts/beads-tui/beads_tui" ]]; then
+      BEADS_TUI_DIR="${_candidate}/plugins/claude-multiagent/scripts/beads-tui"
+    fi
+  fi
+
   if [[ -d "${BEADS_TUI_DIR}/beads_tui" ]]; then
     # Bundled submodule — run as python module with PYTHONPATH
     zellij action new-pane --name "dashboard-beads-${DASH_ID}" --close-on-exit --direction right \
       -- env PYTHONPATH="${BEADS_TUI_DIR}" python3 -m beads_tui "${BDT_ARGS[@]}" 2>/dev/null || true
   elif command -v bdt &>/dev/null; then
-    # System-installed bdt
+    # System-installed bdt — use full resolved path so Zellij can find it
+    BDT_PATH="$(command -v bdt)"
     zellij action new-pane --name "dashboard-beads-${DASH_ID}" --close-on-exit --direction right \
-      -- bdt "${BDT_ARGS[@]}" 2>/dev/null || true
+      -- "$BDT_PATH" "${BDT_ARGS[@]}" 2>/dev/null || true
   else
     # Neither available — show placeholder with install instructions
     zellij action new-pane --name "dashboard-beads-${DASH_ID}" --close-on-exit --direction right \
@@ -259,25 +277,40 @@ if [[ "$has_beads" -eq 0 ]]; then
 fi
 
 # The remaining panes split the right column downward; launch them in parallel.
+# If beads already occupies the right column, agents/deploys split it downward.
+# If beads is absent, the FIRST new pane must create the right column itself.
 {
-  if [[ "$has_agents" -eq 0 ]]; then
-    # Ensure focus is on the right side (beads) before splitting downward.
-    zellij action move-focus right 2>/dev/null || true
+  # Track whether a right-side pane exists (beads or a previously-existing pane).
+  has_right_pane=$has_beads
 
-    zellij action new-pane --name "dashboard-agents-${DASH_ID}" --close-on-exit --direction down \
-      -- python3 "${SCRIPT_DIR}/watch-agents.py" "${PROJECT_DIR}" "${DASH_ID}" 2>/dev/null || true
+  if [[ "$has_agents" -eq 0 ]]; then
+    if [[ "$has_right_pane" -eq 1 ]]; then
+      # Right column exists — split it downward.
+      zellij action move-focus right 2>/dev/null || true
+      zellij action new-pane --name "dashboard-agents-${DASH_ID}" --close-on-exit --direction down \
+        -- python3 "${SCRIPT_DIR}/watch-agents.py" "${PROJECT_DIR}" "${DASH_ID}" 2>/dev/null || true
+    else
+      # No right column yet — create agents to the right of Claude.
+      zellij action new-pane --name "dashboard-agents-${DASH_ID}" --close-on-exit --direction right \
+        -- python3 "${SCRIPT_DIR}/watch-agents.py" "${PROJECT_DIR}" "${DASH_ID}" 2>/dev/null || true
+    fi
+    has_right_pane=1
     # Focus is now on the agents pane.
   fi
 
   if $deploy_pane_enabled && [[ "$has_deploys" -eq 0 ]]; then
-    # Ensure focus is on the right side, then move to the bottom-most pane
-    # so deploys is created below agents (not below Claude).
-    zellij action move-focus right 2>/dev/null || true
-    zellij action move-focus down 2>/dev/null || true
-    zellij action move-focus down 2>/dev/null || true
-
-    zellij action new-pane --name "dashboard-deploys-${DASH_ID}" --close-on-exit --direction down \
-      -- python3 "${SCRIPT_DIR}/watch-deploys.py" "${PROJECT_DIR}" "${DASH_ID}" 2>/dev/null || true
+    if [[ "$has_right_pane" -eq 1 ]]; then
+      # Right column exists — move to the bottom-most pane and split downward.
+      zellij action move-focus right 2>/dev/null || true
+      zellij action move-focus down 2>/dev/null || true
+      zellij action move-focus down 2>/dev/null || true
+      zellij action new-pane --name "dashboard-deploys-${DASH_ID}" --close-on-exit --direction down \
+        -- python3 "${SCRIPT_DIR}/watch-deploys.py" "${PROJECT_DIR}" "${DASH_ID}" 2>/dev/null || true
+    else
+      # No right column yet — create deploys to the right of Claude.
+      zellij action new-pane --name "dashboard-deploys-${DASH_ID}" --close-on-exit --direction right \
+        -- python3 "${SCRIPT_DIR}/watch-deploys.py" "${PROJECT_DIR}" "${DASH_ID}" 2>/dev/null || true
+    fi
   fi
 
   # Return focus to the original (left) pane where Claude runs
