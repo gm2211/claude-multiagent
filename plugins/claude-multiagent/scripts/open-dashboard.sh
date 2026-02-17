@@ -152,7 +152,7 @@ done
 # Uses both pane name= attribute and script args for robust detection.
 has_beads=$(has_dashboard_pane "$focused_tab" "dashboard-beads" "watch-beads.sh")
 has_agents=$(has_dashboard_pane "$focused_tab" "dashboard-agents" "watch-agents.sh")
-has_deploys=$(has_dashboard_pane "$focused_tab" "dashboard-deploys" "watch-deploys.sh")
+has_deploys=$(has_dashboard_pane "$focused_tab" "dashboard-deploys" "watch-deploys")
 
 all_present=true
 [[ "$has_beads" -eq 0 ]] && all_present=false
@@ -203,7 +203,7 @@ if $deploy_pane_enabled && [[ "$has_deploys" -eq 0 ]]; then
   zellij action move-focus down 2>/dev/null || true
 
   zellij action new-pane --name "dashboard-deploys" --close-on-exit --direction down \
-    -- bash -c "cd '${PROJECT_DIR}' && '${SCRIPT_DIR}/watch-deploys.sh'" 2>/dev/null || true
+    -- python3 "${SCRIPT_DIR}/watch-deploys.py" 2>/dev/null || true
 fi
 
 # Return focus to the original (left) pane where Claude runs
