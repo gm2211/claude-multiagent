@@ -34,7 +34,7 @@ if [[ -n "$HOOK_INPUT" ]]; then
 fi
 
 log "Hook event: ${HOOK_EVENT:-unknown} (input length: ${#HOOK_INPUT})"
-log "Hook input (first 200 chars): ${HOOK_INPUT:0:200}"
+log "Hook input: ${HOOK_INPUT}"
 
 # ---------------------------------------------------------------------------
 # Don't close panes when sub-agents stop — only the main session should.
@@ -128,7 +128,7 @@ fi
 
 log "Claude pane check: found $claude_pane_count Claude pane(s) in focused tab"
 
-if [[ "$claude_pane_count" -ge 1 ]]; then
+if [[ "$claude_pane_count" -ge 2 ]]; then
   log "Skipping pane cleanup — $claude_pane_count Claude pane(s) still active in tab"
   exit 0
 fi
