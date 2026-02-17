@@ -265,8 +265,8 @@ def render_card(stdscr, row: int, agent: dict, agent_idx: int,
     Returns the row index after the card (including one blank gap line).
     Card structure (6 rows total including gap):
         ┌─ name ────────── ticket ─┐
-        │ Status: <summary>        │
-        │ Last:   <desc>  (<ago>)  │
+        │ Doing: <summary>         │
+        │ Done:  <desc>  (<ago>)   │
         │ Updated: Xs ago          │
         └──────────────────────────┘
         (blank)
@@ -311,7 +311,14 @@ def render_card(stdscr, row: int, agent: dict, agent_idx: int,
 
     # ── Top border: ┌─ <name> ─── <ticket> ─┐ ──
     name_seg = f" {agent_name} "
-    ticket_seg = f" {ticket_id} "
+    # Truncate ticket if it would overflow the header
+    # Reserve space for: "┌─" + name_seg + "─" (min 1 dash) + " ticket " + "─┐"
+    max_ticket_len = inner - len(name_seg) - 4  # 4 = min 1 dash + space + space
+    if max_ticket_len < 3:
+        ticket_display = ""
+    else:
+        ticket_display = truncate(ticket_id, max_ticket_len)
+    ticket_seg = f" {ticket_display} " if ticket_display else ""
     # "┌─" + name_seg + dashes + ticket_seg + "─┐"
     # total fixed chars: 2 + len(name_seg) + len(ticket_seg) + 2 = 4 + lens
     fixed_chars = 4 + len(name_seg) + len(ticket_seg)
@@ -330,8 +337,8 @@ def render_card(stdscr, row: int, agent: dict, agent_idx: int,
         safe_addstr(stdscr, row, x, top_border[:card_width], border_attr)
     row += 1
 
-    # ── Status row: │ Status: <summary>  │ ──
-    LABEL_S = "Status: "
+    # ── Status row: │ Doing: <summary>  │ ──
+    LABEL_S = "Doing: "
     val_avail = inner - 1 - len(LABEL_S)  # leading space takes 1 char
     status_val = truncate(summary, max(val_avail, 0))
     status_content = pad_right(" " + LABEL_S + status_val, inner)
@@ -341,8 +348,8 @@ def render_card(stdscr, row: int, agent: dict, agent_idx: int,
         safe_addstr(stdscr, row, x + 1 + inner, "│", border_attr)
     row += 1
 
-    # ── Last action row: │ Last:   <desc>  (<ago>)  │ ──
-    LABEL_L = "Last:   "
+    # ── Last action row: │ Done:  <desc>  (<ago>)  │ ──
+    LABEL_L = "Done:  "
     ago_suffix = f" ({last_ago})" if last_ago else ""
     val_avail_l = inner - 1 - len(LABEL_L)
     desc_max = max(val_avail_l - len(ago_suffix), 4)
@@ -474,7 +481,7 @@ def render(stdscr, project_dir: str, scroll_offset: int, selected_idx: int,
             continue
 
         # Stop drawing once fully below viewport (leave room for status bar)
-        if draw_row >= max_y - 1:
+        if draw_row >= max_y - 2:
             break
 
         selected = (i == selected_idx)
@@ -551,7 +558,7 @@ def main(stdscr) -> None:
                     selected_idx = min(selected_idx + 1, total - 1)
                     # Scroll to keep selected card visible
                     max_y, _ = stdscr.getmaxyx()
-                    visible_cards = max(1, (max_y - 3) // CARD_HEIGHT)
+                    visible_cards = max(1, (max_y - 4) // CARD_HEIGHT)
                     if selected_idx >= scroll_offset + visible_cards:
                         scroll_offset = selected_idx - visible_cards + 1
 
