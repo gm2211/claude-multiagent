@@ -151,7 +151,7 @@ done
 # --- Detect existing dashboard panes ---
 # Uses both pane name= attribute and script args for robust detection.
 has_beads=$(has_dashboard_pane "$focused_tab" "dashboard-beads" "watch-beads.sh")
-has_agents=$(has_dashboard_pane "$focused_tab" "dashboard-agents" "watch-agents.sh")
+has_agents=$(has_dashboard_pane "$focused_tab" "dashboard-agents" "watch-agents.py")
 has_deploys=$(has_dashboard_pane "$focused_tab" "dashboard-deploys" "watch-deploys.sh")
 
 all_present=true
@@ -191,7 +191,7 @@ if [[ "$has_agents" -eq 0 ]]; then
   zellij action move-focus right 2>/dev/null || true
 
   zellij action new-pane --name "dashboard-agents" --close-on-exit --direction down \
-    -- bash -c "cd '${PROJECT_DIR}' && '${SCRIPT_DIR}/watch-agents.sh'" 2>/dev/null || true
+    -- python3 "${SCRIPT_DIR}/watch-agents.py" "${PROJECT_DIR}" 2>/dev/null || true
   # Focus is now on the agents pane.
 fi
 
