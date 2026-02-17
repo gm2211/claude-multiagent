@@ -54,55 +54,47 @@ fi
 log "Project directory: $PROJECT_DIR"
 
 # ---------------------------------------------------------------------------
-# Check if there's still an active Claude pane in the focused tab.
+# Check if there's still an active Claude process for this project.
 # If so, another Claude session is still running — don't close panes.
+#
+# We intentionally do NOT use get_focused_tab_layout() here because it
+# returns the FOCUSED tab (where the user currently is), not the tab that
+# fired the SessionEnd event.  Inspecting the focused tab leads to false
+# positives: a SessionEnd from project A would examine project B's tab and
+# see 0 Claude panes, then incorrectly kill project A's dashboard.
+#
+# Instead, we count running "claude" processes whose working directory
+# matches PROJECT_DIR.  This is tab-agnostic and correctly identifies
+# whether another Claude session for THIS project is still active.
 # ---------------------------------------------------------------------------
 
-# Extract the focused tab block from dump-layout output.
-get_focused_tab_layout() {
-  local layout
-  layout=$(zellij action dump-layout 2>/dev/null) || return 1
-
-  local in_focused=0
-  local depth=0
-  local result=""
-
-  while IFS= read -r line; do
-    if [[ $in_focused -eq 0 ]]; then
-      if [[ "$line" =~ ^[[:space:]]*tab[[:space:]].*focus=true ]]; then
-        in_focused=1
-        depth=1
-        result="$line"$'\n'
-      fi
-    else
-      result+="$line"$'\n'
-      local opens="${line//[^\{]/}"
-      local closes="${line//[^\}]/}"
-      depth=$(( depth + ${#opens} - ${#closes} ))
-      if [[ $depth -le 0 ]]; then
-        break
-      fi
-    fi
-  done <<< "$layout"
-
-  printf '%s' "$result"
-}
-
-# Count how many panes in the layout run the "claude" command.
-count_claude_panes() {
-  local layout="$1"
+# Count running claude processes whose cwd matches PROJECT_DIR.
+# We exclude the current shell's own PID to avoid counting ourselves.
+count_active_claude_sessions() {
+  local project_dir="$1"
   local count=0
-  while IFS= read -r line; do
-    if [[ "$line" =~ command=\"claude\" ]]; then
-      (( count++ ))
+  local pids
+  pids=$(pgrep -x claude 2>/dev/null || pgrep -f 'claude' 2>/dev/null || true)
+  for pid in $pids; do
+    [[ "$pid" == "$$" ]] && continue
+    local cwd
+    cwd=$(lsof -p "$pid" -a -d cwd -Fn 2>/dev/null | grep '^n' | sed 's/^n//' || true)
+    if [[ "$cwd" == "$project_dir" ]]; then
+      (( count++ )) || true
     fi
-  done <<< "$layout"
+  done
   echo "$count"
 }
 
 # Extract the dashboard instance ID from pane names in the layout.
-# Panes are named "dashboard-beads-<ID>", "dashboard-agents-<ID>", etc.
-extract_dashboard_id() {
+# We still need this for tab-scoped killing via DASH_ID.
+# We read all tabs (not just focused) to find the one belonging to
+# this session's PROJECT_DIR via the dashboard pane names.
+get_all_tabs_layout() {
+  zellij action dump-layout 2>/dev/null || true
+}
+
+extract_dashboard_id_from_layout() {
   local layout="$1"
   local id=""
   while IFS= read -r line; do
@@ -114,18 +106,43 @@ extract_dashboard_id() {
   echo "$id"
 }
 
-focused_tab=$(get_focused_tab_layout 2>/dev/null) || focused_tab=""
-claude_pane_count=0
-if [[ -n "$focused_tab" ]]; then
-  claude_pane_count=$(count_claude_panes "$focused_tab")
-fi
+all_layout=$(get_all_tabs_layout 2>/dev/null) || all_layout=""
 
-DASH_ID=$(extract_dashboard_id "$focused_tab")
-log "Dashboard ID from focused tab: ${DASH_ID:-none}"
-log "Claude pane check: found $claude_pane_count Claude pane(s) in focused tab"
+# Find the DASH_ID associated with this project by looking at all watch
+# processes running for this PROJECT_DIR and extracting their DASH_ID arg.
+DASH_ID=""
+for script in "watch-beads.py" "watch-agents.py" "watch-deploys.py"; do
+  pids=$(pgrep -f "$script" 2>/dev/null || true)
+  for pid in $pids; do
+    cmdline=$(ps -p "$pid" -o args= 2>/dev/null || true)
+    # cmdline: python3 .../watch-beads.py /path/to/project <dash_id>
+    # Extract the DASH_ID by checking for an exact PROJECT_DIR match.
+    # Split the cmdline into words and compare the project dir argument exactly.
+    read -ra words <<< "$cmdline"
+    for i in "${!words[@]}"; do
+      if [[ "${words[$i]}" == "$PROJECT_DIR" ]]; then
+        # Next word after PROJECT_DIR is the DASH_ID
+        next_idx=$(( i + 1 ))
+        if [[ $next_idx -lt ${#words[@]} ]]; then
+          candidate="${words[$next_idx]}"
+          # DASH_ID is 8 hex chars
+          if [[ "$candidate" =~ ^[a-f0-9]{8}$ ]]; then
+            DASH_ID="$candidate"
+            break 3
+          fi
+        fi
+      fi
+    done
+  done
+done
 
-if [[ "$claude_pane_count" -ge 2 ]]; then
-  log "Skipping pane cleanup — $claude_pane_count Claude pane(s) still active in tab"
+log "Dashboard ID derived from running processes: ${DASH_ID:-none}"
+
+active_sessions=$(count_active_claude_sessions "$PROJECT_DIR")
+log "Active Claude sessions for project: $active_sessions"
+
+if [[ "$active_sessions" -ge 1 ]]; then
+  log "Skipping pane cleanup — $active_sessions Claude session(s) still active for $PROJECT_DIR"
   exit 0
 fi
 
@@ -201,9 +218,22 @@ for script in "${WATCH_SCRIPTS[@]}"; do
         continue
       fi
     else
-      # Legacy fallback: no dashboard ID in layout, match by PROJECT_DIR
-      if [[ "$cmdline" == *"$PROJECT_DIR"* ]]; then
-        log "Killing PID $pid ($script) — matched PROJECT_DIR"
+      # Legacy fallback: no dashboard ID, match by PROJECT_DIR.
+      # Use exact word-boundary matching to prevent a parent path like
+      # /Users/me/projects from matching /Users/me/projects/myapp.
+      # The cmdline format is: python3 /path/watch-*.py <PROJECT_DIR> [DASH_ID]
+      # so PROJECT_DIR appears as a space-separated argument.
+      cmdline_exact_match=false
+      read -ra cmdline_words <<< "$cmdline"
+      for word in "${cmdline_words[@]}"; do
+        if [[ "$word" == "$PROJECT_DIR" ]]; then
+          cmdline_exact_match=true
+          break
+        fi
+      done
+
+      if $cmdline_exact_match; then
+        log "Killing PID $pid ($script) — matched PROJECT_DIR (exact)"
         log "  cmdline: $cmdline"
         kill_tree "$pid" "$script"
         (( killed++ )) || true
@@ -211,12 +241,20 @@ for script in "${WATCH_SCRIPTS[@]}"; do
       fi
 
       # Parent match: this process is a child of a wrapper whose cmdline
-      # contains our project directory.
+      # contains our project directory (exact word match).
       ppid=$(ps -p "$pid" -o ppid= 2>/dev/null | tr -d ' ' || true)
       if [[ -n "$ppid" && "$ppid" != "1" ]]; then
         parent_cmdline=$(ps -p "$ppid" -o args= 2>/dev/null || true)
-        if [[ "$parent_cmdline" == *"$PROJECT_DIR"* ]]; then
-          log "Killing PID $pid ($script) — matched via parent PID $ppid"
+        parent_exact_match=false
+        read -ra parent_words <<< "$parent_cmdline"
+        for word in "${parent_words[@]}"; do
+          if [[ "$word" == "$PROJECT_DIR" ]]; then
+            parent_exact_match=true
+            break
+          fi
+        done
+        if $parent_exact_match; then
+          log "Killing PID $pid ($script) — matched via parent PID $ppid (exact)"
           log "  cmdline: $cmdline"
           kill_tree "$pid" "$script"
           (( killed++ )) || true

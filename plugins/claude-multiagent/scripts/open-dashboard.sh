@@ -122,15 +122,43 @@ has_dashboard_pane() {
   echo 0
 }
 
-# Count how many panes in the layout run the "claude" command.
+# Count how many panes in the layout run the "claude" command AND whose
+# working directory matches PROJECT_DIR.  We cross-reference the layout
+# with the actual process list so that dead/stale Claude panes with
+# different CWDs don't inflate the count and block new session setup.
 count_claude_panes() {
   local layout="$1"
+  local project_dir="$2"
   local count=0
-  while IFS= read -r line; do
-    if [[ "$line" =~ command=\"claude\" ]]; then
-      (( count++ ))
+
+  # Collect PIDs of running claude processes whose cwd == project_dir.
+  local matching_pids=()
+  local pids
+  pids=$(pgrep -x claude 2>/dev/null || pgrep -f 'claude' 2>/dev/null || true)
+  for pid in $pids; do
+    local cwd
+    cwd=$(lsof -p "$pid" -a -d cwd -Fn 2>/dev/null | grep '^n' | sed 's/^n//' || true)
+    if [[ "$cwd" == "$project_dir" ]]; then
+      matching_pids+=("$pid")
     fi
-  done <<< "$layout"
+  done
+
+  # If we found at least one live claude process for this project, count
+  # command="claude" lines in the layout as a proxy for session count.
+  # (The layout doesn't expose PIDs, so we use the live-process check
+  # as the ground truth and cap the count at the number of live sessions.)
+  if [[ ${#matching_pids[@]} -gt 0 ]]; then
+    while IFS= read -r line; do
+      if [[ "$line" =~ command=\"claude\" ]]; then
+        (( count++ ))
+      fi
+    done <<< "$layout"
+    # Don't report more sessions than we actually found live
+    if [[ $count -gt ${#matching_pids[@]} ]]; then
+      count=${#matching_pids[@]}
+    fi
+  fi
+
   echo "$count"
 }
 
@@ -149,7 +177,7 @@ git rev-parse --is-inside-work-tree &>/dev/null || exit 0
 focused_tab=$(get_focused_tab_layout) || exit 0
 
 # --- Multiple Claude sessions detection ---
-claude_count=$(count_claude_panes "$focused_tab")
+claude_count=$(count_claude_panes "$focused_tab" "$PROJECT_DIR")
 if [[ "$claude_count" -gt 1 ]]; then
   # Another Claude instance already has dashboard panes in this tab.
   echo "COORDINATOR MODE: DASHBOARD PANES NOT OPENED."
