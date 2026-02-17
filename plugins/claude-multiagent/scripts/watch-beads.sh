@@ -361,7 +361,7 @@ start_bg_refresh() {
       sleep 5
       kill -USR1 $$ 2>/dev/null
     done
-  ) &
+  ) </dev/null &
 }
 
 BG_REFRESH=0
