@@ -280,8 +280,10 @@ fi
 # If beads already occupies the right column, agents/deploys split it downward.
 # If beads is absent, the FIRST new pane must create the right column itself.
 {
-  # Track whether a right-side pane exists (beads or a previously-existing pane).
-  has_right_pane=$has_beads
+  # Track whether a right-side pane exists.  If beads was missing we just
+  # created it in the foreground block above, so a right pane now exists
+  # regardless of the original detection value.
+  has_right_pane=1
 
   if [[ "$has_agents" -eq 0 ]]; then
     if [[ "$has_right_pane" -eq 1 ]]; then

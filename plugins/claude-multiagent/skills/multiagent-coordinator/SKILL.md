@@ -80,9 +80,9 @@ Use **teams** (TeamCreate) so you can message agents mid-flight via SendMessage.
 - **Max concurrent agents:** On first dispatch of each session, ask the user how many concurrent agents to allow (suggest 5 as default). Respect this limit for the rest of the session.
 - **Before first dispatch:** Ensure `.agent-status.d/` directory exists (create it if needed). On request, read files in `.agent-status.d/` to provide a verbal status table to the user.
 - Agent config: model `claude-opus-4-6` or more powerful, type: `general-purpose`, mode: `bypassPermissions`
-- Each agent works in its own **git worktree** inside `.worktrees/` (must be gitignored). This keeps worktrees within the sandbox so sub-agents have full file access.
+- Each agent works in its own **git worktree** inside `.worktrees/` (must be gitignored). This keeps worktrees within the sandbox so sub-agents have full file access. **Always use `bd worktree`** instead of raw `git worktree` — it auto-configures beads redirect files so issues stay scoped correctly.
   ```bash
-  git worktree add .worktrees/<branch> -b <branch>
+  bd worktree create .worktrees/<branch> --branch <branch>
   cd .worktrees/<branch> && npm ci  # or your project's install command
   ```
 - Prompt must include: bd ticket ID, acceptance criteria, repo path, worktree conventions, test/build commands, and the **reporting instructions** below
@@ -212,7 +212,7 @@ You own merging completed work to the integration branch (default: main). Review
 
 **After every merge, immediately clean up:**
 
-1. `git worktree remove .worktrees/<branch>`
+1. `bd worktree remove .worktrees/<branch>`
 2. `git branch -d <branch>`
 3. `rm -f .agent-status.d/<agent-name>`
 4. `bd close <id> --reason "..."`
