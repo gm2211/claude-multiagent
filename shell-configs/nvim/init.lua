@@ -101,6 +101,11 @@ end, { desc = "Close review views and return to project root" })
 
 vim.keymap.set("n", "<leader>w0", "<cmd>ReviewHome<CR>", { desc = "Go home (close views, cd to root)" })
 
+-- :Beads command — opens beads issue dashboard (use from shell: nvim +Beads)
+vim.api.nvim_create_user_command("Beads", function()
+    require("beads").open()
+end, { desc = "Open beads issue dashboard" })
+
 -- :Cheatsheet command — floating keybinding reference
 vim.api.nvim_create_user_command("Cheatsheet", function()
     require("core.cheatsheet").open()
