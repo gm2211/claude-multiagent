@@ -1,10 +1,9 @@
 #!/bin/sh
 #
-# pre-push hook — version-bump & marketplace-sync guard
+# pre-push hook — version-bump guard
 #
 # Rejects a push if any plugin directory has changes (vs the remote tip)
-# without a corresponding version bump in plugin.json.
-# Also rejects if marketplace.json versions are out of sync with plugin.json.
+# without a corresponding version bump in marketplace.json.
 #
 # Delegates to bd pre-push logic first (if available).
 #
@@ -89,20 +88,33 @@ while read -r LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA; do
     fi
 
     for PLUGIN_DIR in plugins/*/; do
-        PLUGIN_JSON="${PLUGIN_DIR}.claude-plugin/plugin.json"
-
-        # Skip if this plugin has no plugin.json
-        [ -f "$PLUGIN_JSON" ] || continue
-
         PLUGIN_NAME=$(basename "$PLUGIN_DIR")
 
-        # Check if any files in this plugin changed (excluding plugin.json itself)
-        CHANGED=$(git diff --name-only "$RANGE" -- "$PLUGIN_DIR" 2>/dev/null | grep -v "\.claude-plugin/plugin\.json$" || true)
+        # Check if any files in this plugin changed (excluding metadata files)
+        CHANGED=$(git diff --name-only "$RANGE" -- "$PLUGIN_DIR" 2>/dev/null | grep -v "\.claude-plugin/plugin\.json$" | grep -v "\.claude-plugin/marketplace\.json$" || true)
         [ -z "$CHANGED" ] && continue
 
-        # Plugin files changed — check if version was bumped
-        OLD_VERSION=$(git show "${REMOTE_SHA}:${PLUGIN_JSON}" 2>/dev/null | grep '"version"' | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
-        NEW_VERSION=$(git show "${LOCAL_SHA}:${PLUGIN_JSON}" 2>/dev/null | grep '"version"' | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+        # Extract old and new versions from marketplace.json
+        OLD_VERSION=$(git show "${REMOTE_SHA}:${MARKETPLACE_JSON}" 2>/dev/null | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for p in data.get('plugins', []):
+    if p.get('name') == '$PLUGIN_NAME':
+        print(p.get('version', ''))
+        break
+" 2>/dev/null)
+
+        NEW_VERSION=$(git show "${LOCAL_SHA}:${MARKETPLACE_JSON}" 2>/dev/null | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for p in data.get('plugins', []):
+    if p.get('name') == '$PLUGIN_NAME':
+        print(p.get('version', ''))
+        break
+" 2>/dev/null)
+
+        # Plugin has no entry in marketplace.json — skip
+        [ -z "$OLD_VERSION" ] && [ -z "$NEW_VERSION" ] && continue
 
         # New plugin with no prior version — skip
         [ -z "$OLD_VERSION" ] && continue
@@ -115,38 +127,7 @@ while read -r LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA; do
             done <<< "$CHANGED"
             continue
         fi
-
-        # Version was bumped — check marketplace sync
-        if [ -f "$MARKETPLACE_JSON" ]; then
-            MARKETPLACE_VERSION=$(git show "${LOCAL_SHA}:${MARKETPLACE_JSON}" 2>/dev/null | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-for p in data.get('plugins', []):
-    if p.get('name') == '$PLUGIN_NAME':
-        print(p.get('version', ''))
-        break
-" 2>/dev/null)
-
-            if [ -n "$MARKETPLACE_VERSION" ] && [ "$MARKETPLACE_VERSION" != "$NEW_VERSION" ]; then
-                ERRORS="${ERRORS}\n  - Plugin '$PLUGIN_NAME': marketplace.json version ($MARKETPLACE_VERSION) != plugin.json version ($NEW_VERSION)"
-            fi
-        fi
     done
-
-    # Check marketplace top-level version matches highest plugin version
-    if [ -f "$MARKETPLACE_JSON" ]; then
-        HIGHEST_PLUGIN_VERSION=""
-        for PLUGIN_DIR in plugins/*/; do
-            PLUGIN_JSON="${PLUGIN_DIR}.claude-plugin/plugin.json"
-            [ -f "$PLUGIN_JSON" ] || continue
-            V=$(git show "${LOCAL_SHA}:${PLUGIN_JSON}" 2>/dev/null | grep '"version"' | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
-            if [ -n "$V" ]; then
-                if [ -z "$HIGHEST_PLUGIN_VERSION" ] || printf '%s\n%s\n' "$HIGHEST_PLUGIN_VERSION" "$V" | sort -V | tail -1 | grep -q "^${V}$"; then
-                    HIGHEST_PLUGIN_VERSION="$V"
-                fi
-            fi
-        done
-    fi
 done
 
 if [ -n "$ERRORS" ]; then
@@ -154,7 +135,7 @@ if [ -n "$ERRORS" ]; then
     echo "=== Push rejected: plugin version issues ===" >&2
     printf "%b\n" "$ERRORS" >&2
     echo "" >&2
-    echo "Fix: bump the version in plugin.json, update marketplace.json, commit, and retry." >&2
+    echo "Fix: bump the version in marketplace.json, commit, and retry." >&2
     echo "" >&2
     exit 1
 fi
