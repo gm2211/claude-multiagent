@@ -163,6 +163,27 @@ bd ticket ID, acceptance criteria, repo path, worktree conventions, test/build c
 >
 > If stuck >3 min, say so in Blockers. Final comment: summary, files modified, test results.
 
+## Visual Verification for UI Tasks
+
+- **When to include:** If the ticket involves visual/UI changes (web frontend, terminal TUI, CLI output formatting, dashboard panes), append the block below to the agent prompt.
+- **Tailor the capture method:** Pick only the relevant capture method for the UI type — do not include all options.
+- **Block template to append:**
+
+  ```
+  ## Visual Verification — Required for UI Changes
+
+  After implementing your changes, you MUST verify them visually before marking the task complete:
+
+  1. **Run the UI** — start whatever is needed to see the change (dev server, TUI app, CLI command)
+  2. **Capture output** — use the appropriate method for the UI type:
+     - **Web app**: use Puppeteer/Playwright to take a screenshot (`npx puppeteer screenshot <url>`)
+     - **Textual TUI**: use `textual run --screenshot <output.svg> <app>` or the app's built-in screenshot
+     - **Terminal output**: use `script` or `tmux capture-pane -p` to capture text output
+     - **General**: take a screenshot of the running application if other methods aren't available
+  3. **Inspect the capture** — read the screenshot/output and verify it matches the acceptance criteria
+  4. **Iterate if needed** — if it doesn't look right, fix and re-verify. Do not mark complete until verified.
+  ```
+
 ## Workload Management
 
 - **Track status:** Maintain a mental map of `<agent-name> → <ticket-id>` for every active agent.
