@@ -124,21 +124,16 @@ extract_project_dashboard_id() {
     fi
   done <<< "$layout"
 
-  # For each candidate ID, verify it belongs to this project
+  # Verify each candidate ID against running processes
+  # Only trust processes whose cmdline contains BOTH the ID and project_dir
   for id in "${ids[@]+"${ids[@]}"}"; do
-    # Check running watch processes for this ID + project_dir
-    for script in "watch-deploys.py" "beads_tui" "bdt"; do
+    for script in "watch-deploys.py"; do
       local pids
       pids=$(pgrep -f "$script" 2>/dev/null || true)
       for pid in $pids; do
         local cmdline
         cmdline=$(ps -p "$pid" -o args= 2>/dev/null || true)
         if [[ "$cmdline" == *"$id"* && "$cmdline" == *"$project_dir"* ]]; then
-          echo "$id"
-          return
-        fi
-        # bdt/beads_tui embed project_dir in --db-path, not DASH_ID directly
-        if [[ ("$script" == "bdt" || "$script" == "beads_tui") && "$cmdline" == *"$project_dir"* ]]; then
           echo "$id"
           return
         fi
@@ -156,11 +151,7 @@ all_layout=$(get_all_tabs_layout 2>/dev/null) || all_layout=""
 # Strategy 1: Extract from pane names in the layout, verified by process cross-reference.
 DASH_ID=$(extract_project_dashboard_id "$all_layout" "$PROJECT_DIR")
 if [[ -z "$DASH_ID" ]]; then
-  # Fallback to unscoped extraction (may match wrong project)
-  DASH_ID=$(extract_dashboard_id_from_layout "$all_layout")
-  if [[ -n "$DASH_ID" ]]; then
-    log "WARNING: Using unscoped DASH_ID $DASH_ID — could not verify project ownership"
-  fi
+  log "No project-scoped DASH_ID found — will use project-path cleanup only"
 fi
 
 # Strategy 2 (legacy fallback): Scan watch-*.py processes for the DASH_ID arg.
