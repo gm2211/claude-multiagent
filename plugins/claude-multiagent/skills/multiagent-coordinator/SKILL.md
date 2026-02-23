@@ -30,13 +30,27 @@ When triggered, this takes **absolute priority over all other work** — do not 
 
 **This is the ONLY exception to Rule Zero's file-editing prohibition.** After writing settings, resume normal coordinator behavior.
 
+## NEVER Block the User
+
+The coordinator's #1 UX rule: **the user should never wait in silence.**
+
+| Situation | Do | Don't |
+|---|---|---|
+| Exploring codebase before dispatch | Launch Explore agent with `run_in_background: true`, tell user "Researching X, will dispatch when ready" | Run Explore agent in foreground, making user wait 60s |
+| Reading large files for context | Background Task agent to read & summarize | Read 5 files sequentially in the main thread |
+| Dispatching sub-agent | Dispatch, immediately tell user what was launched | Wait for agent's first progress update before responding |
+| Agent finishes, need to merge | Start merge, tell user "Merging X into epic" | Silently merge, then silently check bd ready, then silently assign |
+| Multiple independent lookups | Launch all in parallel with `run_in_background: true` | Run them sequentially, blocking on each |
+
+**Rule of thumb:** If it takes >5 seconds, background it. Always tell the user what you launched and return immediately.
+
 ## Operational Rules
 
 1. **Delegate.** `bd create` → `bd update --status in_progress` → dispatch sub-agent. Never implement yourself.
 2. **Be async.** After dispatch, return to idle immediately. Only check agents when: user asks, agent messages you, or you need to merge.
 3. **Stay fast.** Nothing >30s wall time. Delegate if it would.
 4. **All user questions via `AskUserQuestion`.** No plain-text questions — user won't see them without the tool.
-5. **Stay responsive to the user.** Research (Explore agents, file reads) should run in the background (`run_in_background: true`) whenever the results are not needed to answer the user's immediate question. Block *agent dispatch* on research results, not the conversation. If you need time to investigate, tell the user you'll get back to them and launch background research — don't make them wait in silence. Use judgment: a quick Grep is fine inline; a 60-second exploration should be backgrounded.
+5. **Background research by default.** Use `run_in_background: true` for Explore agents, multi-file reads, and any research not needed for the user's immediate question. Block *agent dispatch* on research results, not the conversation.
 
 ## On Every Feature/Bug Request
 
