@@ -300,25 +300,20 @@ if [[ "$has_beads" -eq 0 ]]; then
     fi
   fi
 
-  if [[ -x "${BEADS_TUI_DIR}/run.sh" ]]; then
-    # Bundled submodule — use run.sh which handles venv + PYTHONPATH
+  # Priority 1: Plugin-managed venv (portable, created by session-start.sh)
+  _managed_venv="${BEADS_TUI_VENV:-${SCRIPT_DIR}/.beads-tui-venv}"
+  if [[ -x "${_managed_venv}/bin/python3" ]] && "${_managed_venv}/bin/python3" -c "import textual" 2>/dev/null; then
+    zellij action new-pane --name "dashboard-beads-${DASH_ID}" --close-on-exit --direction right \
+      -- env PYTHONPATH="${BEADS_TUI_DIR}" "${_managed_venv}/bin/python3" -m beads_tui "${BDT_ARGS[@]}" 2>/dev/null || true
+  elif [[ -x "${BEADS_TUI_DIR}/run.sh" ]]; then
+    # Developer fallback: submodule's run.sh (may have host-specific venv)
     zellij action new-pane --name "dashboard-beads-${DASH_ID}" --close-on-exit --direction right \
       -- "${BEADS_TUI_DIR}/run.sh" "${BDT_ARGS[@]}" 2>/dev/null || true
-  elif [[ -d "${BEADS_TUI_DIR}/beads_tui" ]]; then
-    # Fallback: run.sh not present but source exists — run directly
-    _bdt_python="python3"
-    if [[ -x "${BEADS_TUI_DIR}/.venv/bin/python3" ]]; then
-      _bdt_python="${BEADS_TUI_DIR}/.venv/bin/python3"
-    fi
-    zellij action new-pane --name "dashboard-beads-${DASH_ID}" --close-on-exit --direction right \
-      -- env PYTHONPATH="${BEADS_TUI_DIR}" "$_bdt_python" -m beads_tui "${BDT_ARGS[@]}" 2>/dev/null || true
   elif command -v bdt &>/dev/null; then
-    # System-installed bdt — use full resolved path so Zellij can find it
     BDT_PATH="$(command -v bdt)"
     zellij action new-pane --name "dashboard-beads-${DASH_ID}" --close-on-exit --direction right \
       -- "$BDT_PATH" "${BDT_ARGS[@]}" 2>/dev/null || true
   else
-    # Neither available — show placeholder with install instructions
     zellij action new-pane --name "dashboard-beads-${DASH_ID}" --close-on-exit --direction right \
       -- bash -c 'echo ""; echo "  beads-tui (bdt) is not installed."; echo ""; echo "  Install it with:"; echo "    pipx install beads-tui"; echo ""; echo "  Press Enter to close this pane."; read' 2>/dev/null || true
   fi
