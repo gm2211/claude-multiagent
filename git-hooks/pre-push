@@ -83,8 +83,10 @@ while read -r LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA; do
             continue
         fi
         RANGE="${BASE}..${LOCAL_SHA}"
+        VERSION_BASE="$BASE"
     else
         RANGE="${REMOTE_SHA}..${LOCAL_SHA}"
+        VERSION_BASE="$REMOTE_SHA"
     fi
 
     for PLUGIN_DIR in plugins/*/; do
@@ -95,7 +97,7 @@ while read -r LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA; do
         [ -z "$CHANGED" ] && continue
 
         # Extract old and new versions from marketplace.json
-        OLD_VERSION=$(git show "${REMOTE_SHA}:${MARKETPLACE_JSON}" 2>/dev/null | python3 -c "
+        OLD_VERSION=$(git show "${VERSION_BASE}:${MARKETPLACE_JSON}" 2>/dev/null | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 for p in data.get('plugins', []):
