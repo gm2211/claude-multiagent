@@ -315,14 +315,15 @@ if [[ "$has_beads" -eq 0 ]]; then
     fi
   fi
 
-  if [[ -d "${BEADS_TUI_DIR}/beads_tui" ]]; then
-    # Bundled submodule — run as python module with PYTHONPATH
-    # Prefer the venv python (has textual pre-installed) if available
+  if [[ -x "${BEADS_TUI_DIR}/run.sh" ]]; then
+    # Bundled submodule — use run.sh which handles venv + PYTHONPATH
+    zellij action new-pane --name "dashboard-beads-${DASH_ID}" --close-on-exit --direction right \
+      -- "${BEADS_TUI_DIR}/run.sh" "${BDT_ARGS[@]}" 2>/dev/null || true
+  elif [[ -d "${BEADS_TUI_DIR}/beads_tui" ]]; then
+    # Fallback: run.sh not present but source exists — run directly
     _bdt_python="python3"
-    if [[ -n "${BEADS_TUI_VENV:-}" && -x "${BEADS_TUI_VENV}/bin/python3" ]]; then
-      _bdt_python="${BEADS_TUI_VENV}/bin/python3"
-    elif [[ -x "${SCRIPT_DIR}/.beads-tui-venv/bin/python3" ]]; then
-      _bdt_python="${SCRIPT_DIR}/.beads-tui-venv/bin/python3"
+    if [[ -x "${BEADS_TUI_DIR}/.venv/bin/python3" ]]; then
+      _bdt_python="${BEADS_TUI_DIR}/.venv/bin/python3"
     fi
     zellij action new-pane --name "dashboard-beads-${DASH_ID}" --close-on-exit --direction right \
       -- env PYTHONPATH="${BEADS_TUI_DIR}" "$_bdt_python" -m beads_tui "${BDT_ARGS[@]}" 2>/dev/null || true
