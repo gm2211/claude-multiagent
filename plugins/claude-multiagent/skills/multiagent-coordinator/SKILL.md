@@ -115,28 +115,30 @@ Example:
 
 #### Sub-Agent Worktree Dispatch
 
-> **Warning:** The coordinator MUST create the worktree before dispatch. Never ask the agent to create its own worktree — agents skip this step and pollute main.
+> **Warning:** The coordinator MUST create the worktree before dispatch. Never ask the agent to create its own worktree -- agents skip this step and pollute main.
 
-**New workflow — coordinator pre-creates the worktree, then confines the agent:**
+**Use the worktree-setup script to create worktrees:**
 
-1. **Create the task worktree BEFORE dispatching:**
-   ```bash
-   git worktree add .worktrees/<epic>--<task-slug> -b <epic>--<task-slug>
-   ```
+```bash
+eval "$("${CLAUDE_PLUGIN_ROOT}/scripts/worktree-setup.sh" <bead-id>)"
+# Now WORKTREE_PATH, WORKTREE_BRANCH, WORKTREE_TYPE, EPIC_SLUG are set
+```
 
-2. **Include a confinement block at the TOP of every agent prompt** (before anything else):
-   ```
-   ## WORKSPACE CONFINEMENT — READ FIRST
-   YOUR WORKING DIRECTORY IS: <absolute-worktree-path>
-   Run `cd <absolute-worktree-path>` as your FIRST command.
-   You MUST NOT operate on files outside this directory.
-   You MUST NOT commit to any other branch.
-   All file reads/writes must use absolute paths within this worktree.
-   ```
+The script enforces naming conventions and prevents common mistakes (nesting, wrong branch). It reads bead metadata via `bd show` to determine epic vs task, generates slugs, and creates the worktree with the correct `<epic>--<task>` naming.
 
-3. **Use absolute worktree paths** for all file references in the prompt.
+**After creating the worktree, include a confinement block at the TOP of every agent prompt** (before anything else):
+```
+## WORKSPACE CONFINEMENT -- READ FIRST
+YOUR WORKING DIRECTORY IS: <WORKTREE_PATH>
+Run `cd <WORKTREE_PATH>` as your FIRST command.
+You MUST NOT operate on files outside this directory.
+You MUST NOT commit to any other branch.
+All file reads/writes must use absolute paths within this worktree.
+```
 
-4. The `--assignee` value must match the `name` parameter passed to `Task`.
+**Use absolute worktree paths** for all file references in the prompt.
+
+The `--assignee` value must match the `name` parameter passed to `Task`.
 
 #### Multiple Coordinators
 
