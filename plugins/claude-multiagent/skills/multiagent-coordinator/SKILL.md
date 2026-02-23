@@ -29,7 +29,7 @@ When triggered:
 
 ## Operational Rules
 
-1. **Delegate.** `bd create` → `bd update --status in_progress` → dispatch sub-agent. Never implement yourself.
+1. **Delegate.** `bd create` → `bd update --status in_progress --assignee=<agent-name>` → dispatch sub-agent. Never implement yourself.
 2. **Be async.** After dispatch, return to idle immediately. Only check agents when: user asks, agent messages you, or you need to merge.
 3. **Stay fast.** Nothing >30s wall time. Delegate if it would.
 4. **All user questions via `AskUserQuestion`.** No plain-text questions — user won't see them without the tool.
@@ -42,7 +42,7 @@ When triggered:
      --title "..." --description "..." --type=task --priority=2
    ```
    `$PLUGIN_ROOT` is resolved to the actual plugin path at session start. This assigns `plug-<N>` (sequential) instead of random hashes. Falls back to `bd create` if the wrapper is unavailable.
-2. `bd update <id> --status in_progress`
+2. `bd update <id> --status in_progress --assignee=<agent-name>`
 3. Dispatch background sub-agent immediately
 4. If >10 tickets open, discuss priority with user
 
@@ -110,6 +110,7 @@ Example:
 When dispatching a sub-agent, include in the prompt:
 - `REPO_ROOT=<repo_root>` (absolute path to main repo)
 - `EPIC_BRANCH=<epic>` (the epic this task belongs to)
+- The `--assignee` value used in `bd update` must match the `name` parameter passed to `Task` when spawning the sub-agent
 - Instruct the agent to create its worktree:
   ```bash
   cd <REPO_ROOT>
