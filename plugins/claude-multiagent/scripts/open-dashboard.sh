@@ -239,31 +239,16 @@ for config_path in \
   fi
 done
 
-# --- Check if worktree pane is disabled ---
-worktree_pane_enabled=true
-for config_path in \
-  "${PROJECT_DIR}/.claude/claude-multiagent.local.md" \
-  "${HOME}/.claude/claude-multiagent.local.md"; do
-  if [[ -f "$config_path" ]] && grep -q 'worktree_pane:[[:space:]]*disabled' "$config_path" 2>/dev/null; then
-    worktree_pane_enabled=false
-    break
-  fi
-done
-
 # --- Detect existing dashboard panes ---
 # Uses pane name= attribute, command=, and args for robust detection.
 # This catches both new named panes and old unnamed panes from cached
 # plugin versions running watch-*.py from any path.
 has_beads=$(has_dashboard_pane "$focused_tab" "dashboard-beads" "beads_tui" "$PROJECT_DIR")
 has_deploys=$(has_dashboard_pane "$focused_tab" "dashboard-deploys" "watch-deploys.py" "$PROJECT_DIR")
-has_worktree_nvim=$(has_dashboard_pane "$focused_tab" "dashboard-worktree-nvim" "worktree-nvim/init.lua" "$PROJECT_DIR")
 
 all_present=true
 [[ "$has_beads" -eq 0 ]] && all_present=false
 if $deploy_pane_enabled && [[ "$has_deploys" -eq 0 ]]; then
-  all_present=false
-fi
-if $worktree_pane_enabled && [[ "$has_worktree_nvim" -eq 0 ]]; then
   all_present=false
 fi
 
@@ -276,14 +261,12 @@ fi
 # only the processes belonging to THIS tab's dashboard panes.
 DASH_ID=$(uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]' | head -c 8)
 
-# Open missing panes. The target layout has all three dashboard panes
+# Open missing panes. The target layout has all dashboard panes
 # stacked vertically on the RIGHT side:
 #
 #   ┌──────────────┬────────────────┐
 #   │              │  watch-beads   │
 #   │   Claude     ├────────────────┤
-#   │              │  worktree-nvim │
-#   │              ├────────────────┤
 #   │              │  watch-deploys │
 #   └──────────────┴────────────────┘
 #
@@ -297,11 +280,13 @@ DASH_ID=$(uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]' | head -c 8)
 if [[ "$has_beads" -eq 0 ]]; then
   # Create beads pane to the right of Claude. Focus moves to beads.
   BEADS_TUI_DIR="${SCRIPT_DIR}/beads-tui"
-  BDT_ARGS=(--db-path "${PROJECT_DIR}/.beads/beads.db" --bd-path "$(command -v bd)")
+  _bd_path="$(command -v bd 2>/dev/null || true)"
+  BDT_ARGS=(--db-path "${PROJECT_DIR}/.beads/beads.db")
+  [[ -n "$_bd_path" ]] && BDT_ARGS+=(--bd-path "$_bd_path")
 
-  # When running from the plugin cache the git submodule directory is empty.
-  # Try the source repo's copy of the submodule as a fallback.
-  if [[ ! -d "${BEADS_TUI_DIR}/beads_tui" ]]; then
+  # When running from the plugin cache, run.sh and .venv may be missing even
+  # when beads_tui/ source exists.  Fall back to the source repo's copy.
+  if [[ ! -x "${BEADS_TUI_DIR}/run.sh" ]]; then
     # Walk up from SCRIPT_DIR to find the plugin root, then look for the
     # source checkout (e.g. <repo>/plugins/claude-multiagent/scripts/beads-tui).
     _candidate="$(cd "${SCRIPT_DIR}/.." 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null || true)"
@@ -310,7 +295,7 @@ if [[ "$has_beads" -eq 0 ]]; then
       # repo which may contain the plugin source as a submodule / subtree.
       _candidate="$(cd "${PROJECT_DIR}" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null || true)"
     fi
-    if [[ -n "$_candidate" && -d "${_candidate}/plugins/claude-multiagent/scripts/beads-tui/beads_tui" ]]; then
+    if [[ -n "$_candidate" && -x "${_candidate}/plugins/claude-multiagent/scripts/beads-tui/run.sh" ]]; then
       BEADS_TUI_DIR="${_candidate}/plugins/claude-multiagent/scripts/beads-tui"
     fi
   fi
@@ -339,35 +324,6 @@ if [[ "$has_beads" -eq 0 ]]; then
   fi
 fi
 
-# Pre-bootstrap lazy.nvim plugins for the worktree-nvim pane.
-# On first run, lazy.nvim clones itself but the actual plugins (diffview.nvim,
-# plenary.nvim, nvim-web-devicons) require a network fetch that fails inside
-# Zellij panes. Run a headless nvim to install them before opening the pane.
-#
-# Previous approach used:
-#   nvim --headless -u "$NVIM_INIT" --clean -c "Lazy! sync" -c "qa!"
-# This failed silently because:
-#   1. Lazy! sync dispatches async git clones; "qa!" fires before they finish
-#   2. stderr was suppressed, hiding the actual errors
-# Fix: use a Lua callback via LazySync autocmd to quit only after sync completes,
-# and drop --clean since -u already provides config isolation while --clean can
-# interfere with runtimepath setup that lazy.nvim needs.
-if $worktree_pane_enabled && [[ "$has_worktree_nvim" -eq 0 ]]; then
-  NVIM_INIT="${SCRIPT_DIR}/worktree-nvim/init.lua"
-  if command -v nvim &>/dev/null && [[ -f "$NVIM_INIT" ]]; then
-    _diffview_dir="${HOME}/.local/share/claude-worktree-nvim/lazy/diffview.nvim"
-    if [[ ! -d "$_diffview_dir" ]]; then
-      # Use lua to register a callback that quits after Lazy finishes syncing.
-      # The LazySync event fires when all plugin operations complete.
-      # Fallback: a vim.defer_fn timer ensures we quit even if the event never fires.
-      timeout 60 nvim --headless -u "${NVIM_INIT}" \
-        -c "lua vim.api.nvim_create_autocmd('User', { pattern = 'LazySync', once = true, callback = function() vim.defer_fn(function() vim.cmd('qa!') end, 500) end })" \
-        -c "lua vim.defer_fn(function() vim.cmd('qa!') end, 55000)" \
-        -c "Lazy! sync" 2>/dev/null || true
-    fi
-  fi
-fi
-
 # The remaining panes split the right column downward; launch them in parallel.
 # If beads already occupies the right column, agents/deploys split it downward.
 # If beads is absent, the FIRST new pane must create the right column itself.
@@ -376,23 +332,6 @@ fi
   # created it in the foreground block above, so a right pane now exists
   # regardless of the original detection value.
   has_right_pane=1
-
-  if $worktree_pane_enabled && [[ "$has_worktree_nvim" -eq 0 ]]; then
-    NVIM_INIT="${SCRIPT_DIR}/worktree-nvim/init.lua"
-    if command -v nvim &>/dev/null && [[ -f "$NVIM_INIT" ]]; then
-      zellij action move-focus right 2>/dev/null || true
-      zellij action move-focus down 2>/dev/null || true
-      zellij action new-pane --name "dashboard-worktree-nvim-${DASH_ID}" --close-on-exit --direction down \
-        -- nvim -u "${NVIM_INIT}" \
-           -c "cd ${PROJECT_DIR}" 2>/dev/null || true
-    else
-      # Placeholder with install instructions
-      zellij action move-focus right 2>/dev/null || true
-      zellij action move-focus down 2>/dev/null || true
-      zellij action new-pane --name "dashboard-worktree-nvim-${DASH_ID}" --close-on-exit --direction down \
-        -- bash -c 'echo ""; echo "  Worktree viewer requires neovim."; echo ""; echo "  Install: brew install neovim"; echo ""; echo "  Press Enter to close."; read' 2>/dev/null || true
-    fi
-  fi
 
   if $deploy_pane_enabled && [[ "$has_deploys" -eq 0 ]]; then
     if [[ "$has_right_pane" -eq 1 ]]; then
