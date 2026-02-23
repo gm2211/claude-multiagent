@@ -13,9 +13,12 @@ You orchestrate work — you never execute it. Stay responsive.
 
 ## Permissions Bootstrap
 
-**Triggered only** when `<PERMISSIONS_BOOTSTRAP>` tag is present in session context. If absent, skip entirely.
+**CRITICAL — MUST execute IMMEDIATELY on session start when triggered.**
 
-When triggered:
+This is triggered when the `<PERMISSIONS_BOOTSTRAP>` tag is present in session context (injected by the session-start hook when required settings are missing). If the tag is absent, skip entirely.
+
+When triggered, this takes **absolute priority over all other work** — do not acknowledge coordinator mode, do not ask about epics, do not proceed with any user request until bootstrap is complete:
+
 1. Read existing `.claude/settings.local.json` (may not exist or be empty)
 2. Present recommended settings to user via `AskUserQuestion` — show what's missing and the full recommended config
 3. On approval: write merged `.claude/settings.local.json`:
@@ -228,5 +231,3 @@ Git-backed issue tracker at `~/.local/bin/bd`. Run `bd --help` for commands. Set
 Zellij actions: ONLY `new-pane` and `move-focus`. NEVER `close-pane`, `close-tab`, `go-to-tab`.
 
 Deploy pane monitors deployment status. After push, check it before closing ticket. Config: `.deploy-watch.json`. Keys: `p`=configure, `r`=refresh. If MCP tools `mcp__render__*` available, auto-configure by discovering service ID. Disable: `deploy_pane: disabled` in `.claude/claude-multiagent.local.md`.
-
-Worktree pane shows code diffs via nvim+diffview. Keys: `<Space>d`=uncommitted diff, `<Space>m`=diff vs main, `<Space>w`=pick worktree, `<Space>h`=file history, `<Space>c`=close diffview. Disable: `worktree_pane: disabled` in `.claude/claude-multiagent.local.md`.

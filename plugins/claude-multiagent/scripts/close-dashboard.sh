@@ -98,7 +98,7 @@ extract_dashboard_id_from_layout() {
   local layout="$1"
   local id=""
   while IFS= read -r line; do
-    if [[ "$line" =~ name=\"dashboard-(beads|deploys|worktree-nvim)-([a-f0-9]+)\" ]]; then
+    if [[ "$line" =~ name=\"dashboard-(beads|deploys)-([a-f0-9]+)\" ]]; then
       id="${BASH_REMATCH[2]}"
       break
     fi
@@ -106,11 +106,62 @@ extract_dashboard_id_from_layout() {
   echo "$id"
 }
 
+extract_project_dashboard_id() {
+  local layout="$1"
+  local project_dir="$2"
+  local ids=()
+
+  # Collect all dashboard IDs from the layout
+  while IFS= read -r line; do
+    if [[ "$line" =~ name=\"dashboard-(beads|deploys)-([a-f0-9]+)\" ]]; then
+      local candidate="${BASH_REMATCH[2]}"
+      # Check if this ID is already in our list
+      local found=false
+      for existing in "${ids[@]+"${ids[@]}"}"; do
+        [[ "$existing" == "$candidate" ]] && found=true && break
+      done
+      $found || ids+=("$candidate")
+    fi
+  done <<< "$layout"
+
+  # For each candidate ID, verify it belongs to this project
+  for id in "${ids[@]+"${ids[@]}"}"; do
+    # Check running watch processes for this ID + project_dir
+    for script in "watch-deploys.py" "beads_tui" "bdt"; do
+      local pids
+      pids=$(pgrep -f "$script" 2>/dev/null || true)
+      for pid in $pids; do
+        local cmdline
+        cmdline=$(ps -p "$pid" -o args= 2>/dev/null || true)
+        if [[ "$cmdline" == *"$id"* && "$cmdline" == *"$project_dir"* ]]; then
+          echo "$id"
+          return
+        fi
+        # bdt/beads_tui embed project_dir in --db-path, not DASH_ID directly
+        if [[ ("$script" == "bdt" || "$script" == "beads_tui") && "$cmdline" == *"$project_dir"* ]]; then
+          echo "$id"
+          return
+        fi
+      done
+    done
+  done
+
+  # No project-scoped ID found
+  echo ""
+}
+
 all_layout=$(get_all_tabs_layout 2>/dev/null) || all_layout=""
 
 # Find the DASH_ID associated with this project.
-# Strategy 1: Extract from pane names in the layout (works for all named panes).
-DASH_ID=$(extract_dashboard_id_from_layout "$all_layout")
+# Strategy 1: Extract from pane names in the layout, verified by process cross-reference.
+DASH_ID=$(extract_project_dashboard_id "$all_layout" "$PROJECT_DIR")
+if [[ -z "$DASH_ID" ]]; then
+  # Fallback to unscoped extraction (may match wrong project)
+  DASH_ID=$(extract_dashboard_id_from_layout "$all_layout")
+  if [[ -n "$DASH_ID" ]]; then
+    log "WARNING: Using unscoped DASH_ID $DASH_ID — could not verify project ownership"
+  fi
+fi
 
 # Strategy 2 (legacy fallback): Scan watch-*.py processes for the DASH_ID arg.
 if [[ -z "$DASH_ID" ]]; then
@@ -182,7 +233,7 @@ kill_tree() {
 # child processes (e.g. fswatch spawned by watch-deploys.py).
 # ---------------------------------------------------------------------------
 
-WATCH_SCRIPTS=("bdt" "beads_tui" "watch-beads.py" "watch-deploys.py" "worktree-nvim/init.lua")
+WATCH_SCRIPTS=("bdt" "beads_tui" "watch-beads.py" "watch-deploys.py")
 
 killed=0
 for script in "${WATCH_SCRIPTS[@]}"; do
