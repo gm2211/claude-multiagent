@@ -55,7 +55,11 @@ When triggered:
 ## Sub-Agents
 
 - Create team per session: `TeamCreate`
-- Spawn via `Task` with `team_name`, `name`, model `claude-opus-4-6`, type `general-purpose`
+- Spawn via `Task` with `team_name`, `name`, type `general-purpose`, and a model chosen by task complexity:
+  - **Haiku** (`haiku`): trivial/mechanical tasks — filing issues, finding files, reading/summarizing content, simple searches
+  - **Sonnet** (`sonnet`): well-scoped implementation with clear acceptance criteria — editing specific files, writing a provider script, fixing a known bug
+  - **Opus** (`opus`): ambiguous or architectural tasks requiring judgment — designing a new system, refactoring with unclear scope, tasks needing creative problem-solving
+  - **Default: Sonnet.** Prefer Sonnet unless the task clearly fits Haiku or Opus. Err on the side of capability (Sonnet over Haiku) when unsure.
 - **First dispatch:** Ask user for max concurrent agents (suggest 5). Verify `bd list` works and dashboard is open.
 - **Course-correct** via `SendMessage`. Create a bd ticket for additional work if needed.
 
