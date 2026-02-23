@@ -6,13 +6,14 @@ Terminal setup: kitty + zellij with Catppuccin Mocha theme, Fira Code font, and 
 
 ```bash
 brew install kitty zellij lazygit
-brew install --cask font-symbols-only-nerd-font
+brew install --cask font-symbols-only-nerd-font font-meslo-lg-nerd-font
 ```
 
 - **kitty** -- terminal emulator
 - **zellij** -- terminal multiplexer (replaces tmux)
 - **lazygit** -- TUI git client (used by lazygit.nvim)
 - **font-symbols-only-nerd-font** -- Nerd Font symbols used by kitty's `symbol_map` for icons in nvim, lualine, neo-tree, etc.
+- **font-meslo-lg-nerd-font** -- Meslo LG Nerd Font (patched monospace font with glyphs)
 
 If you don't already have Fira Code installed:
 
@@ -33,7 +34,7 @@ brew install --cask font-fira-code
 ```bash
 # Install dependencies
 brew install kitty zellij lazygit
-brew install --cask font-symbols-only-nerd-font font-fira-code
+brew install --cask font-symbols-only-nerd-font font-meslo-lg-nerd-font font-fira-code
 
 # Create config directories
 mkdir -p ~/.config/kitty ~/.config/zellij/layouts
