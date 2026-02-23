@@ -245,10 +245,14 @@ done
 # plugin versions running watch-*.py from any path.
 has_beads=$(has_dashboard_pane "$focused_tab" "dashboard-beads" "beads_tui" "$PROJECT_DIR")
 has_deploys=$(has_dashboard_pane "$focused_tab" "dashboard-deploys" "watch-deploys.py" "$PROJECT_DIR")
+has_ghactions=$(has_dashboard_pane "$focused_tab" "dashboard-ghactions" "watch-gh-actions.py" "$PROJECT_DIR")
 
 all_present=true
 [[ "$has_beads" -eq 0 ]] && all_present=false
 if $deploy_pane_enabled && [[ "$has_deploys" -eq 0 ]]; then
+  all_present=false
+fi
+if $deploy_pane_enabled && [[ "$has_ghactions" -eq 0 ]]; then
   all_present=false
 fi
 
@@ -261,14 +265,13 @@ fi
 # only the processes belonging to THIS tab's dashboard panes.
 DASH_ID=$(uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]' | head -c 8)
 
-# Open missing panes. The target layout has all dashboard panes
-# stacked vertically on the RIGHT side:
+# Open missing panes. The target layout has dashboard panes on the RIGHT side:
 #
-#   ┌──────────────┬────────────────┐
-#   │              │  watch-beads   │
-#   │   Claude     ├────────────────┤
-#   │              │  watch-deploys │
-#   └──────────────┴────────────────┘
+#   ┌──────────────────┬──────────────────┐
+#   │                  │   beads-tui      │
+#   │     Claude       ├────────┬─────────┤
+#   │                  │ deploy │ gh-runs │
+#   └──────────────────┴────────┴─────────┘
 #
 # new-pane moves focus to the newly created pane, so we track where
 # focus ends up after each step.
@@ -341,6 +344,12 @@ fi
       zellij action new-pane --name "dashboard-deploys-${DASH_ID}" --close-on-exit --direction right \
         -- python3 "${SCRIPT_DIR}/watch-deploys.py" "${PROJECT_DIR}" "${DASH_ID}" 2>/dev/null || true
     fi
+  fi
+
+  if $deploy_pane_enabled && [[ "$has_ghactions" -eq 0 ]]; then
+    # Focus is now on the deploy pane; split it to the right for gh-actions.
+    zellij action new-pane --name "dashboard-ghactions-${DASH_ID}" --close-on-exit --direction right \
+      -- python3 "${SCRIPT_DIR}/watch-gh-actions.py" "${PROJECT_DIR}" 2>/dev/null || true
   fi
 
   # Return focus to the original (left) pane where Claude runs
