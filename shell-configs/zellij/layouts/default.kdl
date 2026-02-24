@@ -3,34 +3,34 @@ layout {
         children
         pane size=1 borderless=true {
             plugin location="https://github.com/dj95/zjstatus/releases/latest/download/zjstatus.wasm" {
-                format_left  "{mode} #[fg=#89b4fa,bold]{session} {tabs}"
+                format_left  "{mode}#[fg=#313244,bg=#1e1e2e] {session} {tabs}"
                 format_center ""
                 format_right "{command_git_branch} {pipe_status} {datetime}"
-                format_space ""
+                format_space "#[bg=#1e1e2e]"
 
                 border_enabled  "false"
                 hide_frame_for_single_pane "true"
 
-                // Catppuccin Mocha mode indicators
-                mode_normal  "#[bg=#89b4fa,fg=#1e1e2e,bold]  NORMAL "
-                mode_tmux    "#[bg=#fab387,fg=#1e1e2e,bold]  PREFIX "
-                mode_pane    "#[bg=#a6e3a1,fg=#1e1e2e,bold]  PANE "
-                mode_tab     "#[bg=#cba6f7,fg=#1e1e2e,bold]  TAB "
-                mode_resize  "#[bg=#f9e2af,fg=#1e1e2e,bold]  RESIZE "
-                mode_move    "#[bg=#94e2d5,fg=#1e1e2e,bold]  MOVE "
-                mode_scroll  "#[bg=#f38ba8,fg=#1e1e2e,bold]  SCROLL "
-                mode_search  "#[bg=#f5c2e7,fg=#1e1e2e,bold]  SEARCH "
-                mode_session "#[bg=#74c7ec,fg=#1e1e2e,bold]  SESSION "
-                mode_locked  "#[bg=#6c7086,fg=#1e1e2e,bold]  LOCKED "
+                // Catppuccin Mocha mode indicators with powerline right arrow
+                mode_normal  "#[bg=#89b4fa,fg=#1e1e2e,bold]  NORMAL #[fg=#89b4fa,bg=#313244]#[fg=#313244,bg=#1e1e2e]"
+                mode_tmux    "#[bg=#fab387,fg=#1e1e2e,bold]  PREFIX #[fg=#fab387,bg=#313244]#[fg=#313244,bg=#1e1e2e]"
+                mode_pane    "#[bg=#a6e3a1,fg=#1e1e2e,bold]  PANE #[fg=#a6e3a1,bg=#313244]#[fg=#313244,bg=#1e1e2e]"
+                mode_tab     "#[bg=#cba6f7,fg=#1e1e2e,bold]  TAB #[fg=#cba6f7,bg=#313244]#[fg=#313244,bg=#1e1e2e]"
+                mode_resize  "#[bg=#f9e2af,fg=#1e1e2e,bold]  RESIZE #[fg=#f9e2af,bg=#313244]#[fg=#313244,bg=#1e1e2e]"
+                mode_move    "#[bg=#94e2d5,fg=#1e1e2e,bold]  MOVE #[fg=#94e2d5,bg=#313244]#[fg=#313244,bg=#1e1e2e]"
+                mode_scroll  "#[bg=#f38ba8,fg=#1e1e2e,bold]  SCROLL #[fg=#f38ba8,bg=#313244]#[fg=#313244,bg=#1e1e2e]"
+                mode_search  "#[bg=#f5c2e7,fg=#1e1e2e,bold]  SEARCH #[fg=#f5c2e7,bg=#313244]#[fg=#313244,bg=#1e1e2e]"
+                mode_session "#[bg=#74c7ec,fg=#1e1e2e,bold]  SESSION #[fg=#74c7ec,bg=#313244]#[fg=#313244,bg=#1e1e2e]"
+                mode_locked  "#[bg=#6c7086,fg=#1e1e2e,bold]  LOCKED #[fg=#6c7086,bg=#313244]#[fg=#313244,bg=#1e1e2e]"
 
-                // Tab styling
-                tab_normal              "#[fg=#6c7086] {name} "
-                tab_active              "#[fg=#89b4fa,bold,italic] {name} "
-                tab_separator           "#[fg=#45475a]│"
+                // Tab styling with powerline arrows
+                tab_normal              "#[fg=#45475a,bg=#1e1e2e]#[fg=#6c7086,bg=#45475a] {index}  {name} #[fg=#45475a,bg=#1e1e2e]"
+                tab_active              "#[fg=#89b4fa,bg=#1e1e2e]#[fg=#1e1e2e,bg=#89b4fa,bold] {index}  {name} #[fg=#89b4fa,bg=#1e1e2e]"
+                tab_separator           " "
 
                 // Git branch
                 command_git_branch_command  "git rev-parse --abbrev-ref HEAD"
-                command_git_branch_format   "#[fg=#a6e3a1]  {stdout} "
+                command_git_branch_format   "#[fg=#45475a,bg=#1e1e2e]#[fg=#a6e3a1,bg=#45475a]  {stdout} #[fg=#45475a,bg=#1e1e2e]"
                 command_git_branch_interval "10"
                 command_git_branch_rendermode "static"
 
@@ -38,8 +38,8 @@ layout {
                 pipe_status_format "#[fg=#6c7086]{output}"
                 pipe_status_rendermode "dynamic"
 
-                // Clock
-                datetime         "#[fg=#6c7086] {format} "
+                // Clock with powerline left arrow
+                datetime         "#[fg=#313244,bg=#1e1e2e]#[fg=#b4befe,bg=#313244]  {format} "
                 datetime_format  "%H:%M"
                 datetime_timezone "America/New_York"
             }
