@@ -3,13 +3,15 @@ layout {
         children
         pane size=1 borderless=true {
             plugin location="https://github.com/dj95/zjstatus/releases/latest/download/zjstatus.wasm" {
-                format_left  "{mode}#[fg=#313244,bg=#1e1e2e] {session} {tabs}"
+                format_left  "{mode}#[fg=#6c7086,bg=#1e1e2e] {session} {tabs}"
                 format_center ""
                 format_right "{command_git_branch} {pipe_status} {datetime}"
                 format_space "#[bg=#1e1e2e]"
 
                 border_enabled  "false"
                 hide_frame_for_single_pane "true"
+                background "#1e1e2e"
+                color_bg "#1e1e2e"
 
                 // Catppuccin Mocha mode indicators with powerline right arrow
                 mode_normal  "#[bg=#89b4fa,fg=#1e1e2e,bold]  NORMAL #[fg=#89b4fa,bg=#313244]#[fg=#313244,bg=#1e1e2e]"
