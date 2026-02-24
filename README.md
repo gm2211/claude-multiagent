@@ -23,7 +23,11 @@ A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin that turn
 
 > **Note:** The marketplace name is `gm2211-plugins` (the repo can host multiple plugins). The plugin name is `claude-multiagent`.
 
-<img width="1697" height="927" alt="image" src="https://github.com/user-attachments/assets/7d9cf63b-a41b-4d90-82f2-c73a2fc173dc" />
+Deploy                     |  Github Actions
+:-------------------------:|:-------------------------:
+<img width="1980" height="1127" alt="deploy" src="https://github.com/user-attachments/assets/34c44815-5564-47d7-944f-e06e5eff489e" /> | <img width="1977" height="1115" alt="actions" src="https://github.com/user-attachments/assets/6b4c25df-076e-426e-9eba-d984ab09cd44" />
+
+
 
 ## What You Get
 
