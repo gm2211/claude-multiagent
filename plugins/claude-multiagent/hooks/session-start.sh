@@ -204,9 +204,34 @@ if git rev-parse --is-inside-work-tree &>/dev/null; then
     WORKTREE_CONTEXT="<WORKTREE_STATE>in_worktree|branch=${CURRENT_BRANCH}|repo_root=${REPO_ROOT}</WORKTREE_STATE>"
   elif [[ "$CURRENT_BRANCH" == "$DEFAULT_BRANCH" || "$CURRENT_BRANCH" == "main" || "$CURRENT_BRANCH" == "master" ]]; then
     # On default branch — list existing epic and task worktrees
-    EXISTING_EPICS=$(ls -d .worktrees/*/ 2>/dev/null | sed 's|.worktrees/||;s|/||' | { grep -v -- '--' || true; } | tr '\n' ',' | sed 's/,$//') || true
-    EXISTING_TASKS=$(ls -d .worktrees/*/ 2>/dev/null | sed 's|.worktrees/||;s|/||' | { grep -- '--' || true; } | tr '\n' ',' | sed 's/,$//') || true
-    WORKTREE_CONTEXT="<WORKTREE_SETUP>on_default_branch|default=${DEFAULT_BRANCH}|epics=${EXISTING_EPICS}|tasks=${EXISTING_TASKS}|repo_root=${REPO_ROOT}</WORKTREE_SETUP>"
+    EXISTING_EPICS=$(ls -d "${REPO_ROOT}/.worktrees/"*/ 2>/dev/null | sed "s|${REPO_ROOT}/.worktrees/||;s|/||" | { grep -v -- '--' || true; }) || true
+    EXISTING_TASKS=$(ls -d "${REPO_ROOT}/.worktrees/"*/ 2>/dev/null | sed "s|${REPO_ROOT}/.worktrees/||;s|/||" | { grep -- '--' || true; } | tr '\n' ',' | sed 's/,$//') || true
+    EXISTING_EPICS_CSV=$(printf '%s' "$EXISTING_EPICS" | tr '\n' ',' | sed 's/,$//') || true
+
+    # Build the WORKTREE_GUARD block
+    _guard_lines="<WORKTREE_GUARD>"$'\n'
+    _guard_lines+="⛔ You are on the main branch. The coordinator MUST NOT proceed with any work from main."$'\n'$'\n'
+
+    if [[ -n "$EXISTING_EPICS" ]]; then
+      _guard_lines+="Existing epic worktrees:"$'\n'
+      while IFS= read -r _epic; do
+        [[ -z "$_epic" ]] && continue
+        _epic_path="${REPO_ROOT}/.worktrees/${_epic}"
+        _epic_branch=$(git -C "$_epic_path" branch --show-current 2>/dev/null || echo "$_epic")
+        _guard_lines+="  - ${_epic} (branch: ${_epic_branch}) → cd ${_epic_path} && claude"$'\n'
+      done <<< "$EXISTING_EPICS"
+      _guard_lines+=$'\n'
+    else
+      _guard_lines+="No epic worktrees exist yet."$'\n'$'\n'
+    fi
+
+    _guard_lines+="To start a new epic:"$'\n'
+    _guard_lines+="  git worktree add ${REPO_ROOT}/.worktrees/<name> -b <name> && cd ${REPO_ROOT}/.worktrees/<name> && claude"$'\n'$'\n'
+    _guard_lines+="ACTION REQUIRED: Tell the user to exit this session and restart Claude from a worktree directory. Do NOT proceed with any feature work, code changes, or agent dispatch."$'\n'
+    _guard_lines+="</WORKTREE_GUARD>"
+
+    WORKTREE_CONTEXT="${_guard_lines}"$'\n'
+    WORKTREE_CONTEXT+="<WORKTREE_SETUP>on_default_branch|default=${DEFAULT_BRANCH}|epics=${EXISTING_EPICS_CSV}|tasks=${EXISTING_TASKS}|repo_root=${REPO_ROOT}</WORKTREE_SETUP>"
   fi
 fi
 
