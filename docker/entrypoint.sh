@@ -150,7 +150,40 @@ deploy_pane: disabled
 EOF
 
 # ---------------------------------------------------------------------------
-# 7. Build Claude command arguments
+# 7. Write no-push autonomous mode instructions (when NO_PUSH=true)
+# ---------------------------------------------------------------------------
+if [ "${NO_PUSH:-}" = "true" ]; then
+    mkdir -p /home/claude/repo/.claude
+    cat >> /home/claude/repo/.claude/CLAUDE.md << 'NOPUSH'
+
+## Autonomous No-Push Mode
+
+This container is running in `--no-push` mode. Git push is disabled.
+
+### Rules for this mode:
+1. **NEVER attempt `git push`** — it will be rejected by the pre-push hook
+2. **NEVER block waiting for review or user approval** — keep working
+3. **After merging task → epic:** immediately check `bd ready` and start the next task
+4. **After merging epic → main:** skip `git push`, check for more epics/tasks, keep going
+5. **Keep working through ALL open beads** until no unblocked work remains
+6. **Do not ask "should I push?"** or "ready for review?" — the answer is always "keep going"
+7. **When all beads are closed** and no work remains, output a final summary:
+   ```
+   All work committed locally.
+   Review: git log --oneline -20
+   Push when ready: git push
+   ```
+
+### Session Close Protocol Override
+The normal "git push" step in the session close protocol is SKIPPED in no-push mode.
+Instead: commit all changes, verify all beads are closed, output the summary above.
+NOPUSH
+
+    log_info "No-push autonomous mode instructions written to CLAUDE.md"
+fi
+
+# ---------------------------------------------------------------------------
+# 8. Build Claude command arguments
 # ---------------------------------------------------------------------------
 CLAUDE_ARGS=("--dangerously-skip-permissions")
 
