@@ -87,16 +87,17 @@ slugify() {
 
 BEAD_ID=""
 REPO_ROOT=""
+REPO_ROOT_ARG=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo-root)
       [ $# -lt 2 ] && die "--repo-root requires a path argument"
-      REPO_ROOT="$2"
+      REPO_ROOT_ARG="$2"
       shift 2
       ;;
     --repo-root=*)
-      REPO_ROOT="${1#--repo-root=}"
+      REPO_ROOT_ARG="${1#--repo-root=}"
       shift
       ;;
     -h|--help)
@@ -122,37 +123,46 @@ done
 # Resolve Repo Root
 ###############################################################################
 
-if [ -n "$REPO_ROOT" ]; then
-  [ -d "$REPO_ROOT/.git" ] || [ -f "$REPO_ROOT/.git" ] \
-    || die "Not a git repository: $REPO_ROOT"
+# 1. Find where we actually are
+ACTUAL_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
+  || die "Not inside a git repository and --repo-root not provided"
+
+# 2. Detect if we're in a worktree
+GIT_DIR="$(cd "$ACTUAL_ROOT" && git rev-parse --git-dir)"
+GIT_COMMON="$(cd "$ACTUAL_ROOT" && git rev-parse --git-common-dir)"
+# Normalize to absolute paths
+GIT_DIR="$(cd "$ACTUAL_ROOT" && cd "$GIT_DIR" && pwd)"
+GIT_COMMON="$(cd "$ACTUAL_ROOT" && cd "$GIT_COMMON" && pwd)"
+
+IN_WORKTREE=false
+if [ "$GIT_DIR" != "$GIT_COMMON" ]; then
+  IN_WORKTREE=true
+fi
+
+# 3. Resolve REPO_ROOT to main repo root (not worktree root)
+if [ -n "${REPO_ROOT_ARG:-}" ]; then
+  # User passed --repo-root explicitly
+  [ -d "$REPO_ROOT_ARG/.git" ] || [ -f "$REPO_ROOT_ARG/.git" ] \
+    || die "Not a git repository: $REPO_ROOT_ARG"
+  REPO_ROOT="$REPO_ROOT_ARG"
+elif [ "$IN_WORKTREE" = true ]; then
+  # GIT_COMMON is the main .git dir; repo root is its parent
+  REPO_ROOT="$(dirname "$GIT_COMMON")"
+
+  # Safety: only allow from epic worktrees (no -- in branch name)
+  CURRENT_BRANCH="$(git -C "$ACTUAL_ROOT" branch --show-current 2>/dev/null || true)"
+  case "$CURRENT_BRANCH" in
+    *--*)
+      die "Refusing to run from a task worktree ($CURRENT_BRANCH). Run from the epic worktree or main repo root."
+      ;;
+  esac
+
+  info "Running from epic worktree ($CURRENT_BRANCH). Using main repo root: $REPO_ROOT"
 else
-  REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
-    || die "Not inside a git repository and --repo-root not provided"
+  REPO_ROOT="$ACTUAL_ROOT"
 fi
 
 REPO_ROOT="$(cd "$REPO_ROOT" && pwd)"  # absolute path
-
-###############################################################################
-# Safety: Must Not Be Inside a Worktree
-###############################################################################
-
-GIT_DIR="$(git -C "$REPO_ROOT" rev-parse --git-dir 2>/dev/null)"
-GIT_COMMON="$(git -C "$REPO_ROOT" rev-parse --git-common-dir 2>/dev/null)"
-
-# Normalize to absolute paths for comparison
-GIT_DIR="$(cd "$REPO_ROOT" && cd "$GIT_DIR" && pwd)"
-GIT_COMMON="$(cd "$REPO_ROOT" && cd "$GIT_COMMON" && pwd)"
-
-if [ "$GIT_DIR" != "$GIT_COMMON" ]; then
-  die "Refusing to run from inside a worktree ($REPO_ROOT). Run from the main repo root instead."
-fi
-
-# Also check that we're not inside .worktrees/*/
-case "$REPO_ROOT" in
-  */.worktrees/*)
-    die "Refusing to run from inside .worktrees/. Run from the main repo root."
-    ;;
-esac
 
 ###############################################################################
 # Check bd availability
