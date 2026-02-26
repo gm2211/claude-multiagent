@@ -87,6 +87,17 @@ class WatchDashboardApp(App):
         """Focus the DataTable when the user switches tabs."""
         self._focus_active_table()
 
+    @on(DataTable.RowSelected)
+    def _on_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Open the URL for the selected row when Enter is pressed.
+
+        DataTable has its own Binding("enter", "select_cursor") which fires
+        before the app-level "enter" -> "open_url" binding can reach us.
+        DataTable.RowSelected is the message emitted by select_cursor, so
+        we hook into that instead of relying on the app-level binding.
+        """
+        self.action_open_url()
+
     def _focus_active_table(self) -> None:
         """Focus the DataTable in whichever tab is currently active."""
         active = self._get_active_tab_id()
