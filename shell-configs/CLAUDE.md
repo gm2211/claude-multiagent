@@ -103,21 +103,14 @@ kill -SIGUSR1 $(pgrep kitty) 2>/dev/null
 
 ## Claude worktree function
 
-`shell-configs/claude-function.sh` defines a `claude()` shell function that intercepts the `claude` command when you are on the default branch (main/master) of a git repo and offers to create or switch to a worktree first. This prevents accidental work directly on main.
+`shell-configs/zsh-functions/functions.zsh` defines a `claude()` shell function that intercepts the `claude` command when you are on the default branch (main/master) of a git repo and offers to create or switch to a worktree first. This prevents accidental work directly on main.
 
 ### Setup
 
-Add this line to your `.zshrc` or `.bashrc`:
+Source `functions.zsh` from your `.zshrc` (this also includes the `ss` function and any future additions):
 
 ```bash
-source /path/to/shell-configs/claude-function.sh
-```
-
-Or symlink it:
-
-```bash
-ln -sf /path/to/shell-configs/claude-function.sh ~/.config/shell/claude-function.sh
-echo 'source ~/.config/shell/claude-function.sh' >> ~/.zshrc
+source /path/to/shell-configs/zsh-functions/functions.zsh
 ```
 
 ### How it works
