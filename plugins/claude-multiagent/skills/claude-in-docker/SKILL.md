@@ -8,6 +8,8 @@ user_invocable: true
 
 Launch a Dockerized Claude Code instance for a specific GitHub repo, or attach to a running container.
 
+**Important:** This skill runs inside Claude Code and must NOT attempt to be interactive. Claude gathers all required information from the user first, then runs `launch.sh` non-interactively and reports back the container name.
+
 ## Steps
 
 ### 1. Parse the user's intent from the invocation arguments
@@ -17,7 +19,7 @@ Check what arguments were passed when the skill was invoked:
 - If args contain `--attach` or the user said "attach", "reconnect", or "existing container" → set MODE=attach
 - If args contain a repo in `owner/repo` format → set REPO=<that value>, MODE=launch
 - If args contain `--help` or `-h` → set MODE=help
-- Otherwise → set MODE=launch (the script will interactively prompt for repo selection)
+- Otherwise → set MODE=launch
 
 Also extract any optional flags the user requested:
 - `--prompt "..."` — non-interactive mode with a specific task
@@ -27,7 +29,21 @@ Also extract any optional flags the user requested:
 - `--rebuild` — force rebuild the Docker image
 - `--no-push` — autonomous mode (commits stay local, no git push)
 
-### 2. Locate the launch script
+### 2. Ask the user for missing required information (before running anything)
+
+**Do not run launch.sh until you have all required information.**
+
+**For MODE=launch:** If REPO is not set (no `owner/repo` in the args), ask the user:
+
+> "Which GitHub repo would you like to launch Claude in? Please specify as `owner/repo` (e.g. `acme/my-service`)."
+
+Wait for the user's answer and set REPO to their response before proceeding.
+
+**For MODE=attach:** List running containers first (see Step 4), then ask the user which container to attach to.
+
+**For MODE=help:** Skip to Step 4 directly.
+
+### 3. Locate the launch script
 
 Run the following to find the launch script path:
 
@@ -40,9 +56,9 @@ if [ ! -f "$LAUNCH_SH" ]; then
 fi
 ```
 
-If the script is not found at that path, report the error with the actual value of `$CLAUDE_PLUGIN_ROOT` and the directory listing so the user can diagnose the installation.
+If the script is not found at that path, report the error with the actual value of `$CLAUDE_PLUGIN_ROOT` and the directory listing so the user can diagnose the installation. Stop here.
 
-### 3. Check prerequisites before running
+### 4. Check prerequisites before running
 
 Run:
 
@@ -60,40 +76,112 @@ If `gh` is not installed, tell the user: "GitHub CLI (gh) is required. Install w
 
 Stop here if any prerequisite is missing.
 
-### 4. Execute the launch script
+### 5. Execute the launch script (non-interactively)
 
-Construct the command based on MODE and any flags extracted in Step 1, then run it via Bash:
+Construct the command based on MODE and any flags extracted in Step 1, then run it via Bash. **Always capture stdout and stderr.**
 
 **Help mode:**
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/docker/launch.sh" --help
+bash "${CLAUDE_PLUGIN_ROOT}/docker/launch.sh" --help 2>&1
 ```
 
 **Attach mode:**
+
+First, list existing containers so the user can choose:
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/docker/launch.sh" --attach
+docker ps -a --filter "ancestor=claude-multiagent" --format 'table {{.Names}}\t{{.Status}}\t{{.ID}}' 2>&1
 ```
 
-**Launch mode (with specific repo):**
+Show that output to the user and ask which container name they want to attach to. Then run:
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/docker/launch.sh" [FLAGS] owner/repo
+# Restart container if needed and show its name
+CONTAINER_NAME="<name chosen by user>"
+STATE=$(docker inspect "$CONTAINER_NAME" --format '{{.State.Status}}' 2>/dev/null)
+if [ "$STATE" = "exited" ] || [ "$STATE" = "created" ]; then
+  docker start "$CONTAINER_NAME"
+fi
+echo "ATTACHED_CONTAINER=$CONTAINER_NAME"
 ```
 
-**Launch mode (interactive — no repo specified):**
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/docker/launch.sh" [FLAGS]
+**Launch mode (repo known from Step 2):**
+
+The container name that `launch.sh` will create is deterministic:
+```
+claude-<owner>-<repo>   (slashes and dots replaced with hyphens)
 ```
 
-Where `[FLAGS]` is built from the optional flags extracted in Step 1, for example:
-- `--rebuild` if the user requested a rebuild
-- `--branch main` if a branch was specified
-- `--model claude-opus-4-5` if a model was specified
-- `--budget 5.00` if a budget was specified
-- `--prompt "fix all failing tests"` if a prompt was specified
-- `--no-push` if autonomous no-push mode was requested
+Build the full command with all flags. **Always include `--prompt` to prevent launch.sh from dropping into an interactive shell.** If the user did not supply a prompt, use `--prompt "ready"` as a sentinel so the container starts in non-interactive mode:
 
-### 5. Report results
+```bash
+LAUNCH_FLAGS=""
+[ -n "$REPO_BRANCH" ]     && LAUNCH_FLAGS="$LAUNCH_FLAGS --branch $REPO_BRANCH"
+[ -n "$CLAUDE_MODEL" ]    && LAUNCH_FLAGS="$LAUNCH_FLAGS --model $CLAUDE_MODEL"
+[ -n "$MAX_BUDGET_USD" ]  && LAUNCH_FLAGS="$LAUNCH_FLAGS --budget $MAX_BUDGET_USD"
+[ "$FORCE_REBUILD" = "true" ] && LAUNCH_FLAGS="$LAUNCH_FLAGS --rebuild"
+[ "$NO_PUSH" = "true" ]   && LAUNCH_FLAGS="$LAUNCH_FLAGS --no-push"
 
-- If the script exits successfully, tell the user the container was launched or attached.
-- If the script exits with an error, show the error output and suggest remediation (check Docker is running, check GitHub auth with `gh auth status`, etc.).
-- The launch script is interactive — it will prompt the user for repo selection and GitHub auth if needed. Claude should run it and let it interact with the terminal directly.
+# Use the user-supplied prompt, or the sentinel "ready" for non-interactive startup
+PROMPT_VALUE="${CLAUDE_PROMPT:-ready}"
+
+bash "${CLAUDE_PLUGIN_ROOT}/docker/launch.sh" \
+  $LAUNCH_FLAGS \
+  --prompt "$PROMPT_VALUE" \
+  "$REPO" 2>&1
+```
+
+Capture the full output. The launch script prints the container name in multiple places:
+- `[INFO]  Container: <container_name>` — in the summary block
+- `[INFO]  Container started: <short-id>` — immediately after `docker run`
+
+Extract the container name from the output:
+```bash
+CONTAINER_NAME=$(echo "$OUTPUT" | grep -oP '(?<=Container: )[^\s]+' | head -1)
+```
+
+If `CONTAINER_NAME` is still empty, derive it from the repo name directly:
+```bash
+CONTAINER_NAME="claude-$(echo "$REPO" | tr '/' '-' | tr '.' '-')"
+```
+
+Confirm it is running:
+```bash
+docker ps --filter "name=$CONTAINER_NAME" --format '{{.Names}}\t{{.Status}}' 2>&1
+```
+
+### 6. Report results
+
+**On success (launch mode):**
+Report back clearly:
+
+```
+Container launched: <container_name>
+
+To attach a shell:
+  docker exec -it <container_name> /bin/zsh -l
+
+To view logs:
+  docker logs -f <container_name>
+
+To stop:
+  docker stop <container_name>
+```
+
+**On success (attach mode):**
+Report back:
+
+```
+Attached to: <container_name>
+
+To open a shell:
+  docker exec -it <container_name> /bin/zsh -l
+
+To view logs:
+  docker logs -f <container_name>
+```
+
+**On error:**
+Show the captured stderr/stdout and suggest remediation:
+- Check Docker is running: `docker info`
+- Check GitHub auth: `gh auth status`
+- Rebuild the image: invoke the skill again with `--rebuild`
+- View container logs: `docker logs <container_name>`
