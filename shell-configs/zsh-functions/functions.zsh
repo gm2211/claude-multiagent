@@ -307,6 +307,24 @@ wt() {
 
 claude() {
   #############################################################################
+  # --skip / -s flag: bypass worktree check entirely
+  #############################################################################
+
+  local _claude_args=()
+  local _skip_worktree=0
+  for _arg in "$@"; do
+    case "$_arg" in
+      --skip|-s) _skip_worktree=1 ;;
+      *) _claude_args+=("$_arg") ;;
+    esac
+  done
+
+  if [ "$_skip_worktree" -eq 1 ]; then
+    command claude "${_claude_args[@]}"
+    return $?
+  fi
+
+  ###########################################################################  
   # Case 1: Not a git repo → pass through
   #############################################################################
 
