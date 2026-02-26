@@ -29,4 +29,5 @@ This directory contains portable shell functions to be sourced from `~/.zshrc`.
 | Function | Description |
 |----------|-------------|
 | `ss`     | Saves the current clipboard image to a temp file (via `pngpaste`) and copies the file path to the clipboard. |
-| `claude` | Intercepts the `claude` command when on the default branch (main/master) of a git repo and offers to create or switch to a worktree first. Prevents accidental work directly on main. |
+| `wt`     | Interactive worktree selector/creator. Works from any git repo. On the default branch, lists existing worktrees or creates a new one, then cd's into it. |
+| `claude` | Wraps `wt` for Claude Code. Detects when you are on the default branch, calls `wt` to select/create a worktree, then launches Claude inside it (in a subshell so the cd does not affect the parent shell). |
