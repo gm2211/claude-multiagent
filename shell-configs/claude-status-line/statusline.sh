@@ -28,21 +28,12 @@ GIT_INFO=""
 if [ -n "$DIR" ] && cd "$DIR" 2>/dev/null && git rev-parse --git-dir >/dev/null 2>&1; then
     REPO=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null)
     BRANCH=$(git branch --show-current 2>/dev/null)
-    # Detect worktree
-    WT=""
-    if git rev-parse --git-common-dir >/dev/null 2>&1; then
-        GIT_DIR=$(git rev-parse --git-dir 2>/dev/null)
-        COMMON_DIR=$(git rev-parse --git-common-dir 2>/dev/null)
-        if [ "$GIT_DIR" != "$COMMON_DIR" ]; then
-            WT=" wt"
-        fi
-    fi
     # Files changed (unique count from porcelain status)
     TOTAL_CHANGED=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')
     # Git additions/deletions from diff
     GIT_ADDS=$(git diff --numstat HEAD 2>/dev/null | awk '{s+=$1} END {print s+0}')
     GIT_DELS=$(git diff --numstat HEAD 2>/dev/null | awk '{s+=$2} END {print s+0}')
-    GIT_INFO=" \033[90m|\033[0m \033[36m${REPO}\033[0m:\033[33m${BRANCH}${WT}\033[0m \033[90m${TOTAL_CHANGED}f\033[0m \033[32m+${GIT_ADDS}\033[0m \033[31m-${GIT_DELS}\033[0m"
+    GIT_INFO=" \033[90m|\033[0m \033[36m${REPO}\033[0m:\033[33m${BRANCH}\033[0m \033[90m${TOTAL_CHANGED}f\033[0m \033[32m+${GIT_ADDS}\033[0m \033[31m-${GIT_DELS}\033[0m"
 fi
 
 # Context bar — thin 20-char bar
