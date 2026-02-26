@@ -118,7 +118,7 @@ source /path/to/shell-configs/zsh-functions/functions.zsh
 - **Not a git repo** → passes through to `command claude` directly
 - **Already in a worktree** → passes through to `command claude` directly
 - **On a non-default branch** → passes through to `command claude` directly
-- **On main/master** → shows a menu of existing `.worktrees/` subdirectories (skipping task worktrees with `--` in the name), or offers to create a new one with an AI-generated branch name
+- **On main/master** → shows a menu of existing `.worktrees/` subdirectories (skipping task worktrees with `--` in the name), or offers to create a new one with a date-based session name (or custom name)
 
 The function uses `command claude` to call the real claude binary, bypassing the shell function itself.
 

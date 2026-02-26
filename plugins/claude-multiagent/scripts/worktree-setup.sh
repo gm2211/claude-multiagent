@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # worktree-setup.sh — Create a correctly-named git worktree for a bead.
 #
-# Reads bead metadata via `bd show` to determine whether the bead is an epic
-# or a task, generates a slug, creates the worktree with the right naming
-# convention, and prints machine-readable output for eval.
+# Reads bead metadata via `bd show` to determine whether the bead is a
+# session-level item or a task, generates a slug, creates the worktree with
+# the right naming convention, and prints machine-readable output for eval.
 #
 # Usage:
 #   worktree-setup.sh <bead-id> [--repo-root /path/to/repo]
 #
 # Output (stdout, machine-readable — safe to eval):
-#   WORKTREE_PATH=/absolute/path/to/.worktrees/epic--task
-#   WORKTREE_BRANCH=epic--task
+#   WORKTREE_PATH=/absolute/path/to/.worktrees/session--task
+#   WORKTREE_BRANCH=session--task
 #   WORKTREE_TYPE=task
-#   EPIC_SLUG=epic
+#   SESSION_SLUG=session
 #
 # Exit codes:
 #   0 — success (worktree created or already exists)
@@ -149,15 +149,15 @@ elif [ "$IN_WORKTREE" = true ]; then
   # GIT_COMMON is the main .git dir; repo root is its parent
   REPO_ROOT="$(dirname "$GIT_COMMON")"
 
-  # Safety: only allow from epic worktrees (no -- in branch name)
+  # Safety: only allow from session worktrees (no -- in branch name)
   CURRENT_BRANCH="$(git -C "$ACTUAL_ROOT" branch --show-current 2>/dev/null || true)"
   case "$CURRENT_BRANCH" in
     *--*)
-      die "Refusing to run from a task worktree ($CURRENT_BRANCH). Run from the epic worktree or main repo root."
+      die "Refusing to run from a task worktree ($CURRENT_BRANCH). Run from the session worktree or main repo root."
       ;;
   esac
 
-  info "Running from epic worktree ($CURRENT_BRANCH). Using main repo root: $REPO_ROOT"
+  info "Running from session worktree ($CURRENT_BRANCH). Using main repo root: $REPO_ROOT"
 else
   REPO_ROOT="$ACTUAL_ROOT"
 fi
@@ -240,7 +240,7 @@ WORKTREES_DIR="$REPO_ROOT/.worktrees"
 mkdir -p "$WORKTREES_DIR"
 
 ###############################################################################
-# Epic Worktree
+# Standalone Worktree (for epic-type beads)
 ###############################################################################
 
 if [ "$IS_EPIC" = true ]; then
@@ -250,11 +250,11 @@ if [ "$IS_EPIC" = true ]; then
 
   # Already exists?
   if [ -d "$WORKTREE_PATH" ]; then
-    info "Epic worktree already exists: $WORKTREE_PATH"
+    info "Standalone worktree already exists: $WORKTREE_PATH"
     echo "WORKTREE_PATH=$WORKTREE_PATH"
     echo "WORKTREE_BRANCH=$BRANCH"
-    echo "WORKTREE_TYPE=epic"
-    echo "EPIC_SLUG=$SLUG"
+    echo "WORKTREE_TYPE=standalone"
+    echo "SESSION_SLUG=$SLUG"
     exit 0
   fi
 
@@ -263,26 +263,26 @@ if [ "$IS_EPIC" = true ]; then
     die "Branch '$BRANCH' already exists but no worktree at $WORKTREE_PATH. Resolve manually."
   fi
 
-  info "Creating epic worktree: $WORKTREE_PATH (branch: $BRANCH)"
+  info "Creating standalone worktree: $WORKTREE_PATH (branch: $BRANCH)"
   git -C "$REPO_ROOT" worktree add "$WORKTREE_PATH" -b "$BRANCH" \
     || die "git worktree add failed"
 
   echo "WORKTREE_PATH=$WORKTREE_PATH"
   echo "WORKTREE_BRANCH=$BRANCH"
-  echo "WORKTREE_TYPE=epic"
-  echo "EPIC_SLUG=$SLUG"
+  echo "WORKTREE_TYPE=standalone"
+  echo "SESSION_SLUG=$SLUG"
   exit 0
 fi
 
 ###############################################################################
-# Task Worktree — Find Parent Epic
+# Task Worktree — Find Parent Session
 ###############################################################################
 
-EPIC_SLUG=""
+SESSION_SLUG=""
 
-# Strategy 1: Check bd refs — look for a referenced epic
+# Strategy 1: Check bd refs — look for a referenced epic/parent
 REFS_JSON=$("$BD" show "$BEAD_ID" --refs --json 2>/dev/null || echo "{}")
-EPIC_FROM_REFS=$(echo "$REFS_JSON" | python3 -c "
+PARENT_FROM_REFS=$(echo "$REFS_JSON" | python3 -c "
 import sys, json
 bead_id = sys.argv[1]
 data = json.load(sys.stdin)
@@ -295,28 +295,28 @@ for ref in refs:
         break
 " "$BEAD_ID" 2>/dev/null || echo "")
 
-if [ -n "$EPIC_FROM_REFS" ]; then
-  EPIC_SLUG=$(slugify "$EPIC_FROM_REFS")
-  info "Found parent epic from refs: $EPIC_FROM_REFS (slug: $EPIC_SLUG)"
+if [ -n "$PARENT_FROM_REFS" ]; then
+  SESSION_SLUG=$(slugify "$PARENT_FROM_REFS")
+  info "Found parent from refs: $PARENT_FROM_REFS (slug: $SESSION_SLUG)"
 fi
 
-# Strategy 2: Check existing epic worktrees
-if [ -z "$EPIC_SLUG" ] && [ -d "$WORKTREES_DIR" ]; then
+# Strategy 2: Check existing session worktrees (directories without -- in name)
+if [ -z "$SESSION_SLUG" ] && [ -d "$WORKTREES_DIR" ]; then
   for wt_dir in "$WORKTREES_DIR"/*/; do
     [ -d "$wt_dir" ] || continue
     wt_name=$(basename "$wt_dir")
     # Skip task worktrees (contain --)
     case "$wt_name" in *--*) continue ;; esac
-    info "Found existing epic worktree: $wt_name"
-    EPIC_SLUG="$wt_name"
-    info "Using existing epic worktree as parent: $wt_name"
+    info "Found existing session worktree: $wt_name"
+    SESSION_SLUG="$wt_name"
+    info "Using existing session worktree as parent: $wt_name"
     break
   done
 fi
 
 # Strategy 3: Search bd for epic issues
-if [ -z "$EPIC_SLUG" ]; then
-  EPIC_FROM_BD=$(
+if [ -z "$SESSION_SLUG" ]; then
+  PARENT_FROM_BD=$(
     "$BD" list --json 2>/dev/null | python3 -c "
 import sys, json
 issues = json.load(sys.stdin)
@@ -331,9 +331,9 @@ if len(epics) == 1:
 " 2>/dev/null || echo ""
   )
 
-  if [ -n "$EPIC_FROM_BD" ]; then
-    EPIC_SLUG=$(slugify "$EPIC_FROM_BD")
-    info "Found single epic from bd: $EPIC_FROM_BD (slug: $EPIC_SLUG)"
+  if [ -n "$PARENT_FROM_BD" ]; then
+    SESSION_SLUG=$(slugify "$PARENT_FROM_BD")
+    info "Found single parent from bd: $PARENT_FROM_BD (slug: $SESSION_SLUG)"
   fi
 fi
 
@@ -343,16 +343,16 @@ fi
 
 TASK_SLUG=$(slugify "$BEAD_TITLE")
 
-if [ -n "$EPIC_SLUG" ]; then
-  BRANCH="${EPIC_SLUG}--${TASK_SLUG}"
+if [ -n "$SESSION_SLUG" ]; then
+  BRANCH="${SESSION_SLUG}--${TASK_SLUG}"
   WORKTREE_PATH="$WORKTREES_DIR/$BRANCH"
   WORKTREE_TYPE="task"
 else
-  warn "No parent epic found for $BEAD_ID. Creating standalone worktree."
+  warn "No parent session found for $BEAD_ID. Creating standalone worktree."
   BRANCH="$TASK_SLUG"
   WORKTREE_PATH="$WORKTREES_DIR/$TASK_SLUG"
   WORKTREE_TYPE="standalone"
-  EPIC_SLUG=""
+  SESSION_SLUG=""
 fi
 
 # Safety: refuse to nest inside an existing worktree
@@ -368,7 +368,7 @@ if [ -d "$WORKTREE_PATH" ]; then
   echo "WORKTREE_PATH=$WORKTREE_PATH"
   echo "WORKTREE_BRANCH=$BRANCH"
   echo "WORKTREE_TYPE=$WORKTREE_TYPE"
-  echo "EPIC_SLUG=$EPIC_SLUG"
+  echo "SESSION_SLUG=$SESSION_SLUG"
   exit 0
 fi
 
@@ -384,5 +384,5 @@ git -C "$REPO_ROOT" worktree add "$WORKTREE_PATH" -b "$BRANCH" \
 echo "WORKTREE_PATH=$WORKTREE_PATH"
 echo "WORKTREE_BRANCH=$BRANCH"
 echo "WORKTREE_TYPE=$WORKTREE_TYPE"
-echo "EPIC_SLUG=$EPIC_SLUG"
+echo "SESSION_SLUG=$SESSION_SLUG"
 exit 0

@@ -29,6 +29,6 @@ This directory contains portable shell functions to be sourced from `~/.zshrc`.
 | Function | Description |
 |----------|-------------|
 | `ss`       | Saves the current clipboard image to a temp file (via `pngpaste`) and copies the file path to the clipboard. |
-| `wt`       | Pure worktree selector. On the default branch, lists existing epic worktrees and cd's into the chosen one. Prints a helpful message and returns 1 if no worktrees exist. |
-| `wt new`   | Worktree creator subcommand. Prompts for a description, generates a branch name via `claude -p` (with fallback to manual input), creates the worktree, and cd's into it. |
+| `wt`       | Pure worktree selector. On the default branch, lists existing session worktrees and cd's into the chosen one. Prints a helpful message and returns 1 if no worktrees exist. |
+| `wt new`   | Worktree creator subcommand. Offers a date-based session name (`session-YYYY-MM-DD`, with `-N` suffix for duplicates) or accepts a custom name. Creates the worktree and cd's into it. |
 | `claude`   | Wraps `wt`/`wt new` for Claude Code. On the default branch, tries `wt` (selector) first; if that fails (no worktrees), falls back to `wt new` (creator); then launches Claude inside the chosen worktree (in a subshell so the cd does not affect the parent shell). |

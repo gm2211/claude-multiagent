@@ -13,11 +13,11 @@ function ss() {
 #
 # Works from any git repo. Dispatches on the first argument:
 #
-#   wt         — pure selector: lists existing epic worktrees, prompts for
+#   wt         — pure selector: lists existing session worktrees, prompts for
 #                selection, and cd's into the chosen one.
-#   wt new     — creator: prompts for a description, generates a branch name
-#                via claude -p (with fallback to manual input), creates the
-#                worktree with `git worktree add`, and cd's into it.
+#   wt new     — creator: offers a date-based session name (session-YYYY-MM-DD)
+#                with -N suffix for duplicates. Also accepts custom names.
+#                Creates the worktree with `git worktree add` and cd's into it.
 #   wt <other> — usage error.
 #
 # Common behavior (runs before dispatch):
@@ -118,49 +118,45 @@ wt() {
     ###########################################################################
 
     new)
-      local description
-      printf "What are you working on? (short description): " >&2
-      read -r description </dev/tty
+      # Generate a default date-based session name with -N suffix for duplicates
+      local today
+      today="$(date +%Y-%m-%d)"
+      local default_name="session-${today}"
 
-      if [ -z "$description" ]; then
-        _wt_err "Description cannot be empty."
-        trap - INT
-        return 1
+      # Check for existing session worktrees with today's date and bump suffix
+      if [ -d "$worktrees_dir/$default_name" ]; then
+        local suffix=2
+        while [ -d "$worktrees_dir/${default_name}-${suffix}" ]; do
+          suffix=$((suffix + 1))
+        done
+        default_name="${default_name}-${suffix}"
       fi
 
-      # Try to generate a branch name using claude -p
-      local branch_name=""
-      _wt_msg "Generating branch name..."
+      local wt_name
+      printf "Worktree name [%s]: " "$default_name" >&2
+      read -r wt_name </dev/tty
 
-      branch_name=$(command claude -p "Generate a short kebab-case branch name (max 30 chars, no prefix) for this feature: ${description}. Output ONLY the branch name, nothing else." 2>/dev/null) || true
-
-      # Clean up the response: trim whitespace, remove quotes, take first line only
-      branch_name="$(printf '%s' "$branch_name" | head -1 | tr -d '[:space:]"'\'' ' | tr -cd 'a-z0-9-')"
-
-      # Fallback if claude -p failed or returned empty/garbage
-      if [ -z "$branch_name" ] || [ "${#branch_name}" -gt 40 ]; then
-        _wt_warn "Could not generate branch name automatically. Please provide one."
-        printf "Branch name (kebab-case, max 30 chars): " >&2
-        read -r branch_name </dev/tty
-
-        if [ -z "$branch_name" ]; then
-          _wt_err "Branch name cannot be empty."
+      # Use default if user pressed Enter without typing anything
+      if [ -z "$wt_name" ]; then
+        wt_name="$default_name"
+      else
+        # Sanitize custom name
+        wt_name="$(printf '%s' "$wt_name" | tr '[:upper:]' '[:lower:]' | tr ' _' '--' | tr -cd 'a-z0-9-' | sed -E 's/-+/-/g; s/^-+//; s/-+$//' | cut -c1-40)"
+        if [ -z "$wt_name" ]; then
+          _wt_err "Worktree name cannot be empty."
           trap - INT
           return 1
         fi
-
-        # Sanitize user input
-        branch_name="$(printf '%s' "$branch_name" | tr '[:upper:]' '[:lower:]' | tr ' _' '--' | tr -cd 'a-z0-9-' | sed -E 's/-+/-/g; s/^-+//; s/-+$//' | cut -c1-30)"
       fi
 
-      local worktree_path="$worktrees_dir/$branch_name"
+      local worktree_path="$worktrees_dir/$wt_name"
 
       # If this worktree already exists, just use it
       if [ -d "$worktree_path" ]; then
-        _wt_msg "Worktree '$branch_name' already exists. Using it."
+        _wt_msg "Worktree '$wt_name' already exists. Using it."
       else
-        _wt_msg "Creating worktree: $branch_name"
-        git worktree add "$worktree_path" -b "$branch_name" || {
+        _wt_msg "Creating worktree: $wt_name"
+        git worktree add "$worktree_path" -b "$wt_name" || {
           _wt_err "Failed to create worktree. You may need to resolve this manually."
           trap - INT
           return 1
@@ -168,7 +164,7 @@ wt() {
       fi
 
       _wt_msg ""
-      _wt_msg "Switching to worktree: $branch_name"
+      _wt_msg "Switching to worktree: $wt_name"
       _wt_msg ""
 
       trap - INT
@@ -180,8 +176,8 @@ wt() {
     ###########################################################################
 
     "")
-      # Collect existing epic worktrees (directories without -- in their name)
-      local epic_worktrees=()
+      # Collect existing session worktrees (directories without -- in their name)
+      local session_worktrees=()
       if [ -d "$worktrees_dir" ]; then
         local wt_dir wt_name
         # Suppress "no matches found" in zsh when glob matches nothing
@@ -191,11 +187,11 @@ wt() {
           wt_name="$(basename "$wt_dir")"
           # Skip task worktrees (contain --)
           case "$wt_name" in *--*) continue ;; esac
-          epic_worktrees+=("$wt_name")
+          session_worktrees+=("$wt_name")
         done
       fi
 
-      if [ ${#epic_worktrees[@]} -eq 0 ]; then
+      if [ ${#session_worktrees[@]} -eq 0 ]; then
         _wt_msg "No worktrees found. Use \`wt new\` to create one."
         trap - INT
         return 1
@@ -205,7 +201,7 @@ wt() {
       if command -v fzf >/dev/null 2>&1; then
         # fzf mode: pipe worktree names, let user arrow-select
         local selected
-        selected=$(printf '%s\n' "${epic_worktrees[@]}" | fzf --height=~50% --reverse --prompt="Select worktree: " --header="Arrow keys to navigate, Enter to select, Esc to cancel" </dev/tty)
+        selected=$(printf '%s\n' "${session_worktrees[@]}" | fzf --height=~50% --reverse --prompt="Select worktree: " --header="Arrow keys to navigate, Enter to select, Esc to cancel" </dev/tty)
         if [ -z "$selected" ]; then
           _wt_msg "No worktree selected."
           trap - INT
@@ -217,20 +213,20 @@ wt() {
         _wt_msg "Existing worktrees:"
         local _i=0
         local _wt
-        for _wt in "${epic_worktrees[@]}"; do
+        for _wt in "${session_worktrees[@]}"; do
           _i=$((_i + 1))
           _wt_msg "  ${_i}) ${_wt}"
         done
         _wt_msg ""
 
         local selection
-        printf "Select a worktree [1-${#epic_worktrees[@]}]: " >&2
+        printf "Select a worktree [1-${#session_worktrees[@]}]: " >&2
         read -r selection </dev/tty
 
-        if echo "$selection" | grep -qE '^[0-9]+$' && [ "$selection" -ge 1 ] && [ "$selection" -le ${#epic_worktrees[@]} ]; then
+        if echo "$selection" | grep -qE '^[0-9]+$' && [ "$selection" -ge 1 ] && [ "$selection" -le ${#session_worktrees[@]} ]; then
           # Portable: walk array to find the Nth element
           _i=0
-          for _wt in "${epic_worktrees[@]}"; do
+          for _wt in "${session_worktrees[@]}"; do
             _i=$((_i + 1))
             if [ "$_i" -eq "$selection" ]; then
               choice="$_wt"

@@ -39,7 +39,7 @@ The coordinator's #1 UX rule: **the user should never wait in silence.**
 | Exploring codebase before dispatch | Launch Explore agent with `run_in_background: true`, tell user "Researching X, will dispatch when ready" | Run Explore agent in foreground, making user wait 60s |
 | Reading large files for context | Background Task agent to read & summarize | Read 5 files sequentially in the main thread |
 | Dispatching sub-agent | Dispatch, immediately tell user what was launched | Wait for agent's first progress update before responding |
-| Agent finishes, need to merge | Start merge, tell user "Merging X into epic" | Silently merge, then silently check bd ready, then silently assign |
+| Agent finishes, need to merge | Start merge, tell user "Merging X into session" | Silently merge, then silently check bd ready, then silently assign |
 | Multiple independent lookups | Launch all in parallel with `run_in_background: true` | Run them sequentially, blocking on each |
 
 **Rule of thumb:** If it takes >5 seconds, background it. Always tell the user what you launched and return immediately.
@@ -81,22 +81,24 @@ The coordinator's #1 UX rule: **the user should never wait in silence.**
 - **First dispatch:** Ask user for max concurrent agents (suggest 5). Verify `bd list` works and dashboard is open.
 - **Course-correct** via `SendMessage`. Create a bd ticket for additional work if needed.
 
-### Worktrees — Epic Isolation
+### Worktrees — Session Isolation
 
-**Never develop on `main` directly.** The coordinator is launched inside the epic worktree by a wrapper script and never operates on `main`.
+**Never develop on `main` directly.** The coordinator is launched inside a session worktree by a wrapper script and never operates on `main`.
+
+A session worktree is scoped to a single Claude coordinator session, not to a specific epic. A single session may work on multiple epics or tickets.
 
 #### Three-Tier Hierarchy
 
 ```
 main (never used directly — wrapper script prevents this)
-├── .worktrees/<epic>/              ← coordinator runs HERE (launched by wrapper)
-├── .worktrees/<epic>--<task>/      ← task worktree (sub-agent works here)
-└── .worktrees/<other-epic>/        ← another coordinator instance
+├── .worktrees/<session>/              ← coordinator runs HERE (launched by wrapper)
+├── .worktrees/<session>--<task>/      ← task worktree (sub-agent works here)
+└── .worktrees/<other-session>/        ← another coordinator instance
 ```
 
-#### Detecting Repo Root from Epic Worktree
+#### Detecting Repo Root from Session Worktree
 
-Since the coordinator runs inside the epic worktree, use this to find the main repo root when needed (worktree management, merging to main, etc.):
+Since the coordinator runs inside the session worktree, use this to find the main repo root when needed (worktree management, merging to main, etc.):
 
 ```bash
 REPO_ROOT="$(dirname "$(git rev-parse --git-common-dir)")"
@@ -104,9 +106,9 @@ REPO_ROOT="$(dirname "$(git rev-parse --git-common-dir)")"
 
 #### On Session Start
 
-When `<WORKTREE_STATE>` tag is present (normal case — you're in your epic worktree):
+When `<WORKTREE_STATE>` tag is present (normal case — you're in your session worktree):
 1. You're already in the right place. Proceed normally.
-2. Check `bd list` for open tasks under this epic
+2. Check `bd list` for open tasks
 3. Check for existing task worktrees in the repo root's `.worktrees/` directory
 
 When `<WORKTREE_GUARD>` tag is present (you're on main — something went wrong):
@@ -121,20 +123,20 @@ When `<WORKTREE_SETUP>` tag is present (legacy/fallback — on main without guar
 #### Naming Convention
 
 All worktrees live in `.worktrees/` at the repo root:
-- **Epic:** `.worktrees/<epic>/` — branch `<epic>`
-- **Task:** `.worktrees/<epic>--<task-slug>/` — branch `<epic>--<task-slug>`
+- **Session:** `.worktrees/<session>/` — branch `<session>` (e.g. `session-2026-02-25`)
+- **Task:** `.worktrees/<session>--<task-slug>/` — branch `<session>--<task-slug>`
 
-The `--` delimiter groups tasks under their epic in sorted listings.
+The `--` delimiter groups tasks under their session in sorted listings. Session names default to `session-YYYY-MM-DD` (with `-N` suffix for multiple sessions on the same day), but custom names are also allowed.
 
 Example:
 ```
 .worktrees/
-├── add-auth/                    ← epic (coordinator session 1)
-├── add-auth--login-form/        ← task (sub-agent)
-├── add-auth--api-middleware/     ← task (sub-agent)
-├── fix-perf/                    ← epic (coordinator session 2)
-├── fix-perf--optimize-queries/  ← task (sub-agent)
-└── fix-perf--add-caching/       ← task (sub-agent)
+├── session-2026-02-25/                       ← session (coordinator instance 1)
+├── session-2026-02-25--login-form/           ← task (sub-agent)
+├── session-2026-02-25--api-middleware/        ← task (sub-agent)
+├── session-2026-02-25-2/                     ← session (coordinator instance 2, same day)
+├── session-2026-02-25-2--optimize-queries/   ← task (sub-agent)
+└── session-2026-02-25-2--add-caching/        ← task (sub-agent)
 ```
 
 #### Sub-Agent Worktree Dispatch
@@ -142,19 +144,19 @@ Example:
 > **Warning:** The coordinator MUST create the worktree before dispatch. Never ask the agent to create its own worktree -- agents skip this step and pollute main.
 
 > **CRITICAL**: All worktrees MUST be direct children of `<repo-root>/.worktrees/`.
-> Nested worktrees (`.worktrees/epic/.worktrees/task/`) are a bug.
+> Nested worktrees (`.worktrees/session/.worktrees/task/`) are a bug.
 > The worktree-setup.sh script prevents this automatically. Never bypass it.
 
 **FORBIDDEN: Never run `git worktree add` directly. ALWAYS use `worktree-setup.sh`.**
 
-**Use the worktree-setup script to create worktrees (can be called from within the epic worktree):**
+**Use the worktree-setup script to create worktrees (can be called from within the session worktree):**
 
 ```bash
 eval "$("${CLAUDE_PLUGIN_ROOT}/scripts/worktree-setup.sh" <bead-id>)"
-# Now WORKTREE_PATH, WORKTREE_BRANCH, WORKTREE_TYPE, EPIC_SLUG are set
+# Now WORKTREE_PATH, WORKTREE_BRANCH, WORKTREE_TYPE, SESSION_SLUG are set
 ```
 
-The script enforces naming conventions and prevents common mistakes (nesting, wrong branch). It reads bead metadata via `bd show` to determine epic vs task, generates slugs, and creates the worktree with the correct `<epic>--<task>` naming. The script automatically resolves REPO_ROOT to the main repo root, so task worktrees are always created at `<repo-root>/.worktrees/<epic>--<task>/`.
+The script enforces naming conventions and prevents common mistakes (nesting, wrong branch). It reads bead metadata via `bd show` to determine the worktree type, generates slugs, and creates the worktree with the correct `<session>--<task>` naming. The script automatically resolves REPO_ROOT to the main repo root, so task worktrees are always created at `<repo-root>/.worktrees/<session>--<task>/`.
 
 **After creating the worktree, include a confinement block at the TOP of every agent prompt** (before anything else):
 ```
@@ -173,10 +175,10 @@ The `--assignee` value must match the `name` parameter passed to `Task`.
 #### Multiple Coordinators
 
 Multiple coordinators on the same repo are safe without locking:
-- Each coordinator runs in its own epic worktree — they never share `main`
-- `git worktree add` is atomic — two coordinators cannot create the same epic worktree
-- bd ownership shows which epics are claimed
-- Merge targets are disjoint — each coordinator only merges into its own epics
+- Each coordinator runs in its own session worktree — they never share `main`
+- `git worktree add` is atomic — two coordinators cannot create the same session worktree
+- bd ownership shows which sessions/tasks are claimed
+- Merge targets are disjoint — each coordinator only merges into its own session branch
 - No stale locks — worktrees + bd issues ARE the state
 
 ### Agent Prompt Must Include
@@ -243,20 +245,20 @@ First, resolve repo root (needed for all merge and cleanup commands):
 REPO_ROOT="$(dirname "$(git rev-parse --git-common-dir)")"
 ```
 
-**Task → Epic (when sub-agent completes):**
-1. Already on the epic branch — merge directly: `git merge <epic>--<task-slug>`
-2. `git worktree remove "${REPO_ROOT}/.worktrees/<epic>--<task-slug>"`
-3. `git branch -d <epic>--<task-slug>`
-4. `bd close <task-id> --reason "merged into <epic>"`
+**Task → Session (when sub-agent completes):**
+1. Already on the session branch — merge directly: `git merge <session>--<task-slug>`
+2. `git worktree remove "${REPO_ROOT}/.worktrees/<session>--<task-slug>"`
+3. `git branch -d <session>--<task-slug>`
+4. `bd close <task-id> --reason "merged into <session>"`
 
-**Epic → Main (when all tasks complete):**
-1. Merge into main from the epic worktree: `git -C "${REPO_ROOT}" merge <epic>`
-2. `git worktree remove "${REPO_ROOT}/.worktrees/<epic>"`
-3. `git branch -d <epic>`
-4. `bd close <epic-id> --reason "shipped"`
+**Session → Main (when all tasks complete):**
+1. Merge into main from the session worktree: `git -C "${REPO_ROOT}" merge <session>`
+2. `git worktree remove "${REPO_ROOT}/.worktrees/<session>"`
+3. `git branch -d <session>`
+4. `bd close <ticket-id> --reason "shipped"`
 5. `git -C "${REPO_ROOT}" push`
 
-Epics are the unit of shipment. Only push when an epic merges to main.
+Sessions are the unit of shipment. Only push when a session merges to main.
 
 Do not let worktrees or tickets accumulate.
 
@@ -278,7 +280,7 @@ Deploy pane monitors deployment status. After push, check it before closing tick
 
 When `NO_PUSH=true` is set (detected via environment variable or CLAUDE.md instructions):
 
-- **Skip all push steps.** After merging epic→main, do NOT run `git push`. Move immediately to next work.
-- **Skip review gates.** Do not pause for user approval between tasks or epics.
+- **Skip all push steps.** After merging session→main, do NOT run `git push`. Move immediately to next work.
+- **Skip review gates.** Do not pause for user approval between tasks or sessions.
 - **Continuous work.** After every task completion: merge → close ticket → check `bd ready` → assign next task. Repeat until no work remains.
 - **Final summary.** When all beads are closed: list completed tickets, files changed, and tell the user to `git push` when ready.
