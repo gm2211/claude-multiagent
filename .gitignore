@@ -1,6 +1,5 @@
+.claude
 .worktrees/
-.agent-status.md
-.agent-status.d/
 .beads/
 .DS_Store
 __pycache__/
