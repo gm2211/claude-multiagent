@@ -85,7 +85,7 @@ get_tab_name_for_cwd() {
 # ── Parse event ────────────────────────────────────────────────────────────
 
 EVENT=$(cat)
-HOOK_TYPE=$(printf '%s' "$EVENT" | jq -r '.type // .event // empty')
+HOOK_TYPE=$(printf '%s' "$EVENT" | jq -r '.hook_event_name // .type // .event // empty')
 
 # ── Per-tab rename logic ────────────────────────────────────────────────────
 
