@@ -22,6 +22,7 @@
 #   WORKTREE_BRANCH=branch-name
 #   AGENT_NAME=worker-foo
 #   AGENT_TICKETS=plug-44,plug-45
+#   AGENT_REPORTING_BLOCK=<pre-formatted bd comments reporting instructions>
 #
 # Exit codes:
 #   0 — success
@@ -58,6 +59,7 @@ Output (stdout, eval-safe):
   WORKTREE_BRANCH=...
   AGENT_NAME=...
   AGENT_TICKETS=...
+  AGENT_REPORTING_BLOCK=...
 USAGE
   exit 1
 }
@@ -207,12 +209,24 @@ done <<< "$WORKTREE_OUTPUT"
 info "Worktree ready: $WORKTREE_PATH (branch: $WORKTREE_BRANCH)"
 
 ###############################################################################
+# Build the AGENT_REPORTING_BLOCK: pre-formatted bd comments instructions with
+# agent name and primary ticket ID already substituted.
+###############################################################################
+
+# Use printf to build the block so special characters (backticks, quotes,
+# em-dashes) are handled correctly without shell interpretation.
+AGENT_REPORTING_BLOCK="$(printf \
+'## Reporting — mandatory.\n\nEvery 60s, post a progress comment to your ticket.\nYou MUST include `--author %s` so comments show your name.\n\n```bash\nbd comments add %s --author "%s" "[<step>/<total>] <activity>\nDone: <completed since last update>\nDoing: <current work>\nBlockers: <blockers or none>\nETA: <estimate>\nFiles: <modified files>"\n```\n\nIf stuck >3 min, say so in Blockers. Final comment: summary, files modified, test results.' \
+  "$AGENT_NAME" "$PRIMARY_TICKET" "$AGENT_NAME")"
+
+###############################################################################
 # Print eval-safe variable assignments to stdout
 ###############################################################################
 
-printf 'WORKTREE_PATH=%s\n'   "$WORKTREE_PATH"
-printf 'WORKTREE_BRANCH=%s\n' "$WORKTREE_BRANCH"
-printf 'AGENT_NAME=%s\n'      "$AGENT_NAME"
-printf 'AGENT_TICKETS=%s\n'   "$AGENT_TICKETS"
+printf 'WORKTREE_PATH=%s\n'          "$WORKTREE_PATH"
+printf 'WORKTREE_BRANCH=%s\n'        "$WORKTREE_BRANCH"
+printf 'AGENT_NAME=%s\n'             "$AGENT_NAME"
+printf 'AGENT_TICKETS=%s\n'          "$AGENT_TICKETS"
+printf 'AGENT_REPORTING_BLOCK=%s\n'  "$(printf '%q' "$AGENT_REPORTING_BLOCK")"
 
 exit 0
