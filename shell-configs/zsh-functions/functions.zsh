@@ -122,9 +122,11 @@ claude() {
 
   if [ ${#epic_worktrees[@]} -gt 0 ]; then
     _claude_msg "Existing worktrees:"
-    local i
-    for i in "${!epic_worktrees[@]}"; do
-      _claude_msg "  $((i + 1))) ${epic_worktrees[$i]}"
+    local _i=0
+    local _wt
+    for _wt in "${epic_worktrees[@]}"; do
+      _i=$((_i + 1))
+      _claude_msg "  ${_i}) ${_wt}"
     done
     _claude_msg "  n) Create new worktree"
     _claude_msg ""
@@ -136,7 +138,15 @@ claude() {
     if [ "$selection" = "n" ] || [ "$selection" = "N" ]; then
       choice="__new__"
     elif echo "$selection" | grep -qE '^[0-9]+$' && [ "$selection" -ge 1 ] && [ "$selection" -le ${#epic_worktrees[@]} ]; then
-      choice="${epic_worktrees[$((selection - 1))]}"
+      # Portable: walk array to find the Nth element
+      _i=0
+      for _wt in "${epic_worktrees[@]}"; do
+        _i=$((_i + 1))
+        if [ "$_i" -eq "$selection" ]; then
+          choice="$_wt"
+          break
+        fi
+      done
     else
       _claude_err "Invalid selection: $selection"
       trap - INT
