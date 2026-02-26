@@ -193,19 +193,26 @@ wt() {
         return 1
       fi
 
+      # Detect whether a TTY is available for interactive prompts
+      local _tty_available=0
+      if [ -t 0 ] || { [ -e /dev/tty ] && : </dev/tty 2>/dev/null; }; then
+        _tty_available=1
+      fi
+
       local choice=""
-      if command -v fzf >/dev/null 2>&1; then
+      if [ "$_tty_available" -eq 1 ] && command -v fzf >/dev/null 2>&1; then
         # fzf mode: pipe worktree names, let user arrow-select
         local selected
-        selected=$(printf '%s\n' "${session_worktrees[@]}" | fzf --height=~50% --reverse --prompt="Select worktree: " --header="Arrow keys to navigate, Enter to select, Esc to cancel" </dev/tty)
-        if [ -z "$selected" ]; then
+        selected=$(printf '%s\n' "${session_worktrees[@]}" | fzf --height=~50% --reverse --prompt="Select worktree: " --header="Arrow keys to navigate, Enter to select, Esc to cancel" </dev/tty 2>/dev/null)
+        local fzf_exit=$?
+        if [ $fzf_exit -ne 0 ] || [ -z "$selected" ]; then
           _wt_msg "No worktree selected."
           trap - INT
           return 1
         fi
         choice="$selected"
-      else
-        # Fallback: numbered list
+      elif [ "$_tty_available" -eq 1 ]; then
+        # Fallback: numbered list (fzf not installed but TTY available)
         _wt_msg "Existing worktrees:"
         local _i=0
         local _wt
@@ -234,6 +241,18 @@ wt() {
           trap - INT
           return 1
         fi
+      else
+        # No TTY available — cannot interactively select
+        _wt_err "No TTY available for interactive selection. Run 'wt' in an interactive terminal."
+        _wt_msg "Available worktrees:"
+        local _i=0
+        local _wt
+        for _wt in "${session_worktrees[@]}"; do
+          _i=$((_i + 1))
+          _wt_msg "  ${_i}) ${_wt}"
+        done
+        trap - INT
+        return 1
       fi
 
       local target_dir="$worktrees_dir/$choice"
@@ -346,7 +365,9 @@ claude() {
   printf '%s\n' "You are on the '$default_branch' branch. Claude should run in a worktree." >&2
   printf '%s\n' "" >&2
 
-  # Run wt + claude in a subshell so the cd does not leak to the parent shell.
-  # Try selector first; if it fails (no worktrees), offer creation via wt new.
-  (wt || wt new) && command claude "$@"
+  # Try selector first; if it fails (no worktrees or user cancels), offer creation.
+  # Do NOT wrap wt in a subshell — a subshell loses both the TTY context required
+  # for fzf/read AND the cd that switches into the chosen worktree.
+  # Calling wt directly (as a shell function) lets cd propagate to this shell.
+  { wt || wt new; } && command claude "$@"
 }
