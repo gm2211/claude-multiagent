@@ -17,6 +17,51 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PROJECT_DIR="${1:-$PWD}"
 
+# Run a command with timeout.
+# Preference order:
+# 1) GNU timeout
+# 2) Homebrew gtimeout
+# 3) Bash watchdog fallback that returns 124 on timeout
+run_with_timeout() {
+  local seconds="$1"
+  shift
+
+  if command -v timeout &>/dev/null; then
+    timeout "$seconds" "$@"
+  elif command -v gtimeout &>/dev/null; then
+    gtimeout "$seconds" "$@"
+  else
+    local cmd_pid watchdog_pid cmd_status=0
+    local timeout_marker="/tmp/claude-timeout-${$}-${RANDOM}.marker"
+    rm -f "$timeout_marker" 2>/dev/null || true
+
+    "$@" &
+    cmd_pid=$!
+
+    (
+      sleep "$seconds"
+      if kill -0 "$cmd_pid" 2>/dev/null; then
+        : > "$timeout_marker"
+        kill -TERM "$cmd_pid" 2>/dev/null || true
+        sleep 1
+        kill -KILL "$cmd_pid" 2>/dev/null || true
+      fi
+    ) &
+    watchdog_pid=$!
+
+    wait "$cmd_pid" || cmd_status=$?
+    kill "$watchdog_pid" 2>/dev/null || true
+    wait "$watchdog_pid" 2>/dev/null || true
+
+    if [[ -f "$timeout_marker" ]]; then
+      rm -f "$timeout_marker" 2>/dev/null || true
+      return 124
+    fi
+
+    return "$cmd_status"
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Lock — prevent concurrent runs from creating duplicate panes
 # ---------------------------------------------------------------------------
@@ -52,7 +97,7 @@ trap cleanup_lock EXIT
 # The focused tab contains focus=true in its tab declaration.
 get_focused_tab_layout() {
   local layout
-  layout=$(timeout 5 zellij action dump-layout 2>/dev/null) || return 1
+  layout=$(run_with_timeout 5 zellij action dump-layout 2>/dev/null) || return 1
 
   local in_focused=0
   local depth=0

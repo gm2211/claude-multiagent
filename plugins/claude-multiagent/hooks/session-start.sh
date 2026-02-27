@@ -7,6 +7,51 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+# Run a command with timeout.
+# Preference order:
+# 1) GNU timeout
+# 2) Homebrew gtimeout
+# 3) Bash watchdog fallback that returns 124 on timeout
+run_with_timeout() {
+  local seconds="$1"
+  shift
+
+  if command -v timeout &>/dev/null; then
+    timeout "$seconds" "$@"
+  elif command -v gtimeout &>/dev/null; then
+    gtimeout "$seconds" "$@"
+  else
+    local cmd_pid watchdog_pid cmd_status=0
+    local timeout_marker="/tmp/claude-timeout-${$}-${RANDOM}.marker"
+    rm -f "$timeout_marker" 2>/dev/null || true
+
+    "$@" &
+    cmd_pid=$!
+
+    (
+      sleep "$seconds"
+      if kill -0 "$cmd_pid" 2>/dev/null; then
+        : > "$timeout_marker"
+        kill -TERM "$cmd_pid" 2>/dev/null || true
+        sleep 1
+        kill -KILL "$cmd_pid" 2>/dev/null || true
+      fi
+    ) &
+    watchdog_pid=$!
+
+    wait "$cmd_pid" || cmd_status=$?
+    kill "$watchdog_pid" 2>/dev/null || true
+    wait "$watchdog_pid" 2>/dev/null || true
+
+    if [[ -f "$timeout_marker" ]]; then
+      rm -f "$timeout_marker" 2>/dev/null || true
+      return 124
+    fi
+
+    return "$cmd_status"
+  fi
+}
+
 # --- Ensure beads-tui submodule and venv are ready ---
 BEADS_TUI_DIR="${PLUGIN_ROOT}/scripts/beads-tui"
 BEADS_TUI_VENV="${PLUGIN_ROOT}/scripts/.beads-tui-venv"
@@ -86,7 +131,7 @@ if [[ -z "$CACHE_STALE_WARNING" ]] && [[ -f "$_installed_json" ]] && command -v 
 
   if [[ "$_fetch_latest" == "true" ]]; then
     # Fetch latest version from GitHub with a 5-second timeout; fail silently
-    _latest_version=$(timeout 5 gh api repos/gm2211/claude-plugins/contents/.claude-plugin/marketplace.json --jq '.content' 2>/dev/null \
+    _latest_version=$(run_with_timeout 5 gh api repos/gm2211/claude-plugins/contents/.claude-plugin/marketplace.json --jq '.content' 2>/dev/null \
       | base64 -d 2>/dev/null \
       | jq -r '.plugins[0].version // empty' 2>/dev/null \
       || true)
