@@ -8,6 +8,11 @@
 
 set -euo pipefail
 
+# Allow per-launch opt-out from shell wrapper.
+if [[ "${CLAUDE_MULTIAGENT_DISABLE:-}" == "1" ]]; then
+  exit 0
+fi
+
 # ---------------------------------------------------------------------------
 # Debug logging
 # ---------------------------------------------------------------------------

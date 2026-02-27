@@ -497,7 +497,7 @@ _claude_launch() {
 
 claude() {
   #############################################################################
-  # --skip / -s flag: bypass worktree check entirely
+  # --skip / -s flag: bypass worktree check and disable multiagent hooks
   #############################################################################
 
   local _claude_args=()
@@ -510,7 +510,9 @@ claude() {
   done
 
   if [ "$_skip_worktree" -eq 1 ]; then
-    _claude_launch "${_claude_args[@]}"
+    # Disable claude-multiagent for this Claude process and its hooks.
+    # This gives an escape hatch for a plain Claude session.
+    CLAUDE_MULTIAGENT_DISABLE=1 command claude "${_claude_args[@]}"
     return $?
   fi
 

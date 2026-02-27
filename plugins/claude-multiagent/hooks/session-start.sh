@@ -7,6 +7,20 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+# Allow per-launch opt-out from shell wrapper:
+#   CLAUDE_MULTIAGENT_DISABLE=1 claude
+if [[ "${CLAUDE_MULTIAGENT_DISABLE:-}" == "1" ]]; then
+  cat <<'EOF'
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": ""
+  }
+}
+EOF
+  exit 0
+fi
+
 # Run a command with timeout.
 # Preference order:
 # 1) GNU timeout
