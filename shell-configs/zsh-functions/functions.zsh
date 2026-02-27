@@ -9,7 +9,7 @@ function ss() {
     }
 }
 
-# wt() — Interactive worktree selector (wt) and creator (wt new).
+# wt() — Interactive worktree selector (wt), creator (wt new), and remover (wt delete).
 #
 # Works from any git repo. Dispatches on the first argument:
 #
@@ -18,6 +18,9 @@ function ss() {
 #   wt new     — creator: offers a date-based session name (session-YYYY-MM-DD)
 #                with -N suffix for duplicates. Also accepts custom names.
 #                Creates the worktree with `git worktree add` and cd's into it.
+#   wt delete [name]
+#              — remover: deletes a worktree under .worktrees/. If name is
+#                omitted, prompts to select one interactively.
 #   wt <other> — usage error.
 #
 # Common behavior (runs before dispatch):
@@ -38,6 +41,7 @@ wt() {
   _wt_err()  { printf 'ERROR: %s\n' "$*" >&2; }
 
   local subcmd="${1:-}"
+  local subarg="${2:-}"
 
   # Clean up on Ctrl+C
   trap '_wt_msg ""; _wt_msg "Interrupted."; return 130' INT
@@ -54,6 +58,7 @@ wt() {
 
   #############################################################################
   # Case 2: Already in a worktree → inform and return
+  # (except for `wt delete`, which is allowed from worktrees too)
   #############################################################################
 
   local git_dir git_common_dir abs_git_dir abs_git_common
@@ -64,7 +69,7 @@ wt() {
   abs_git_dir="$(cd "$git_dir" && pwd)"
   abs_git_common="$(cd "$git_common_dir" && pwd)"
 
-  if [ "$abs_git_dir" != "$abs_git_common" ]; then
+  if [ "$subcmd" != "delete" ] && [ "$abs_git_dir" != "$abs_git_common" ]; then
     local wt_branch
     wt_branch="$(git symbolic-ref --short HEAD 2>/dev/null || echo "(detached)")"
     _wt_msg "Already in a worktree: $wt_branch ($(pwd))"
@@ -74,6 +79,7 @@ wt() {
 
   #############################################################################
   # Case 3: On a non-default branch → inform and return
+  # (except for `wt delete`, which is branch-agnostic)
   #############################################################################
 
   local default_branch current_branch
@@ -92,7 +98,7 @@ wt() {
 
   current_branch="$(git symbolic-ref --short HEAD 2>/dev/null || echo "")"
 
-  if [ "$current_branch" != "$default_branch" ]; then
+  if [ "$subcmd" != "delete" ] && [ "$current_branch" != "$default_branch" ]; then
     _wt_msg "On branch '$current_branch' (not the default branch)."
     trap - INT
     return 0
@@ -165,6 +171,147 @@ wt() {
 
       trap - INT
       cd "$worktree_path"
+      ;;
+
+    ###########################################################################
+    # wt delete [name] — remover
+    ###########################################################################
+
+    delete)
+      # Collect all worktrees under .worktrees (sessions and task worktrees).
+      local deletable_worktrees=()
+      if [ -d "$worktrees_dir" ]; then
+        local wt_dir wt_name
+        [ -n "$ZSH_VERSION" ] && setopt local_options NULL_GLOB
+        for wt_dir in "$worktrees_dir"/*/; do
+          [ -d "$wt_dir" ] || continue
+          wt_name="$(basename "$wt_dir")"
+          deletable_worktrees+=("$wt_name")
+        done
+      fi
+
+      if [ ${#deletable_worktrees[@]} -eq 0 ]; then
+        _wt_msg "No worktrees found under .worktrees/."
+        trap - INT
+        return 1
+      fi
+
+      local choice="${subarg:-}"
+
+      # No explicit name: prompt interactively.
+      if [ -z "$choice" ]; then
+        local _tty_available=0
+        if [ -t 0 ] || { [ -e /dev/tty ] && : </dev/tty 2>/dev/null; }; then
+          _tty_available=1
+        fi
+
+        if [ "$_tty_available" -eq 1 ] && command -v fzf >/dev/null 2>&1; then
+          local selected
+          selected=$(printf '%s\n' "${deletable_worktrees[@]}" | fzf --height=~50% --reverse --prompt="Delete worktree: " --header="Select a worktree to delete, Enter to confirm, Esc to cancel" 2>/dev/null)
+          local fzf_exit=$?
+          if [ $fzf_exit -ne 0 ] || [ -z "$selected" ]; then
+            _wt_msg "No worktree selected."
+            trap - INT
+            return 1
+          fi
+          choice="$selected"
+        elif [ "$_tty_available" -eq 1 ]; then
+          _wt_msg "Existing worktrees:"
+          local _i=0
+          local _wt
+          for _wt in "${deletable_worktrees[@]}"; do
+            _i=$((_i + 1))
+            _wt_msg "  ${_i}) ${_wt}"
+          done
+          _wt_msg ""
+
+          local selection
+          printf "Select a worktree to delete [1-${#deletable_worktrees[@]}]: " >&2
+          read -r selection </dev/tty
+
+          if echo "$selection" | grep -qE '^[0-9]+$' && [ "$selection" -ge 1 ] && [ "$selection" -le ${#deletable_worktrees[@]} ]; then
+            _i=0
+            for _wt in "${deletable_worktrees[@]}"; do
+              _i=$((_i + 1))
+              if [ "$_i" -eq "$selection" ]; then
+                choice="$_wt"
+                break
+              fi
+            done
+          else
+            _wt_err "Invalid selection: $selection"
+            trap - INT
+            return 1
+          fi
+        else
+          _wt_err "No TTY available for interactive delete. Pass a name: wt delete <worktree-name>"
+          trap - INT
+          return 1
+        fi
+      fi
+
+      local target_dir="$worktrees_dir/$choice"
+      if [ ! -d "$target_dir" ]; then
+        _wt_err "Worktree does not exist under .worktrees/: $choice"
+        trap - INT
+        return 1
+      fi
+
+      # Safety: never remove the worktree that contains the current shell cwd.
+      local cwd_abs target_abs
+      cwd_abs="$(pwd -P)"
+      target_abs="$(cd "$target_dir" && pwd -P)"
+      case "$cwd_abs" in
+        "$target_abs"|"$target_abs"/*)
+          _wt_err "Refusing to delete the currently active worktree: $choice"
+          trap - INT
+          return 1
+          ;;
+      esac
+
+      # Ask for confirmation unless explicitly forced (WT_DELETE_FORCE=1).
+      if [ "${WT_DELETE_FORCE:-0}" != "1" ]; then
+        local _confirm=""
+        if [ -t 0 ] || { [ -e /dev/tty ] && : </dev/tty 2>/dev/null; }; then
+          printf "Delete worktree '%s'? [y/N]: " "$choice" >&2
+          read -r _confirm </dev/tty
+        else
+          _wt_err "No TTY available for confirmation. Re-run with WT_DELETE_FORCE=1."
+          trap - INT
+          return 1
+        fi
+        case "$_confirm" in
+          y|Y|yes|YES) ;;
+          *)
+            _wt_msg "Delete cancelled."
+            trap - INT
+            return 1
+            ;;
+        esac
+      fi
+
+      _wt_msg "Removing worktree: $choice"
+      if ! git worktree remove "$target_dir"; then
+        _wt_err "Failed to remove worktree '$choice'. If it has local changes, commit/stash first (or remove manually with force if intentional)."
+        trap - INT
+        return 1
+      fi
+
+      # Clean stale worktree metadata if any.
+      git worktree prune >/dev/null 2>&1 || true
+
+      # If branch name matches worktree name, try to remove it when merged.
+      if git show-ref --verify --quiet "refs/heads/$choice" 2>/dev/null; then
+        if git branch -d "$choice" >/dev/null 2>&1; then
+          _wt_msg "Deleted local branch: $choice"
+        else
+          _wt_warn "Kept local branch '$choice' (not fully merged). Remove manually if desired: git branch -D $choice"
+        fi
+      fi
+
+      _wt_msg "Deleted worktree: $choice"
+      trap - INT
+      return 0
       ;;
 
     ###########################################################################
@@ -277,7 +424,7 @@ wt() {
 
     *)
       _wt_err "Unknown subcommand: $subcmd"
-      _wt_msg "Usage: wt [new]"
+      _wt_msg "Usage: wt [new|delete [name]]"
       trap - INT
       return 1
       ;;
