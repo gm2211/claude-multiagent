@@ -26,6 +26,13 @@ from ..providers import (
 _log = logging.getLogger("watch-dashboard")
 
 
+# Textual DataTable hover events can render badly under some terminals/multiplexers
+# (ghost header rows on mouse movement). Keep list navigation keyboard-only.
+class _KeyboardOnlyDataTable(DataTable):
+    def _on_mouse_move(self, event) -> None:  # type: ignore[override]
+        event.stop()
+
+
 # ---------------------------------------------------------------------------
 # Status styling helpers
 # ---------------------------------------------------------------------------
@@ -99,7 +106,7 @@ class DeploysTab(Vertical):
     def compose(self) -> ComposeResult:
         yield Static("", id="deploy-service-url")
         yield Static("", id="deploy-env-summary")
-        yield DataTable(
+        yield _KeyboardOnlyDataTable(
             id="deploy-table",
             cursor_type="row",
             zebra_stripes=True,

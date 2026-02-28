@@ -51,8 +51,8 @@ plugins/claude-multiagent/
 Dashboard beads panes use a configurable database scope via
 `CLAUDE_MULTIAGENT_BEADS_DB_MODE`:
 
-- `worktree` (default): isolated DB per worktree at
-  `<worktree>/.beads/dolt` (legacy `.beads-worktree/dolt` still supported)
+- `worktree` (default): use `bd` auto-discovery in the worktree directory
+  (legacy explicit `.beads-worktree/dolt` is still supported)
 - `shared` (or `repo`): shared DB at `<repo>/.beads/dolt`
 
 Optional explicit override:

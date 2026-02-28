@@ -18,26 +18,27 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PROJECT_DIR="${1:-$PWD}"
 
 # Beads DB scope:
-# - worktree (default): isolate issues per worktree using <worktree>/.beads/dolt
+# - worktree (default): use bd's auto-discovery in the worktree directory
 # - shared/repo: use the main repo DB (<repo>/.beads/dolt)
 # Optional explicit override: CLAUDE_MULTIAGENT_BEADS_DB_PATH=/abs/path/to/dolt
 BEADS_DB_MODE="${CLAUDE_MULTIAGENT_BEADS_DB_MODE:-worktree}"
 BEADS_DB_PATH_OVERRIDE="${CLAUDE_MULTIAGENT_BEADS_DB_PATH:-}"
 REPO_ROOT="$(dirname "$(git -C "$PROJECT_DIR" rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null || true)"
 [[ -n "$REPO_ROOT" ]] || REPO_ROOT="$PROJECT_DIR"
+BEADS_DB_PATH=""
+BEADS_DB_EXPLICIT=0
 if [[ -n "$BEADS_DB_PATH_OVERRIDE" ]]; then
   BEADS_DB_PATH="$BEADS_DB_PATH_OVERRIDE"
+  BEADS_DB_EXPLICIT=1
 elif [[ "$BEADS_DB_MODE" == "shared" || "$BEADS_DB_MODE" == "repo" ]]; then
   BEADS_DB_PATH="${REPO_ROOT}/.beads/dolt"
+  BEADS_DB_EXPLICIT=1
 else
-  # Keep worktree mode aligned with plain `bd` defaults first.
-  # Backward-compat: if a legacy .beads-worktree DB exists, use it.
-  if [[ -d "${PROJECT_DIR}/.beads/dolt" ]]; then
-    BEADS_DB_PATH="${PROJECT_DIR}/.beads/dolt"
-  elif [[ -d "${PROJECT_DIR}/.beads-worktree/dolt" ]]; then
+  # Worktree mode: mirror plain `bd` behavior by default (no explicit --db).
+  # Backward-compat: if only the legacy .beads-worktree DB exists, force it.
+  if [[ ! -d "${PROJECT_DIR}/.beads/dolt" && -d "${PROJECT_DIR}/.beads-worktree/dolt" ]]; then
     BEADS_DB_PATH="${PROJECT_DIR}/.beads-worktree/dolt"
-  else
-    BEADS_DB_PATH="${PROJECT_DIR}/.beads/dolt"
+    BEADS_DB_EXPLICIT=1
   fi
 fi
 
@@ -246,6 +247,13 @@ has_beads_process() {
   for pid in $pids; do
     cmdline=$(ps -p "$pid" -o args= 2>/dev/null || true)
     if [[ -n "$db_path" && "$cmdline" == *"$db_path"* ]]; then
+      echo 1
+      return
+    fi
+    # Match by process cwd for auto-discovery mode (no explicit --db-path).
+    local cwd
+    cwd=$(lsof -p "$pid" -a -d cwd -Fn 2>/dev/null | awk '/^n/ {print substr($0,2)}' || true)
+    if [[ "$cwd" == "$project_dir" ]]; then
       echo 1
       return
     fi
@@ -462,16 +470,10 @@ if $beads_pane_enabled && [[ "$has_beads" -eq 0 ]]; then
   # Create beads pane to the right of Claude. Focus moves to beads.
   BEADS_TUI_DIR="${SCRIPT_DIR}/beads-tui"
   _bd_path="$(command -v bd 2>/dev/null || true)"
-
-  # In worktree mode, lazily initialize this worktree's DB path if needed.
-  if [[ "$BEADS_DB_MODE" != "shared" && "$BEADS_DB_MODE" != "repo" ]]; then
-    mkdir -p "$(dirname "$BEADS_DB_PATH")" 2>/dev/null || true
-    if [[ -n "$_bd_path" && ! -d "$BEADS_DB_PATH" ]]; then
-      "$_bd_path" --db "$BEADS_DB_PATH" init --quiet >/dev/null 2>&1 || true
-    fi
+  BDT_ARGS=()
+  if [[ "$BEADS_DB_EXPLICIT" -eq 1 && -n "$BEADS_DB_PATH" ]]; then
+    BDT_ARGS+=(--db-path "$BEADS_DB_PATH")
   fi
-
-  BDT_ARGS=(--db-path "$BEADS_DB_PATH")
   [[ -n "$_bd_path" ]] && BDT_ARGS+=(--bd-path "$_bd_path")
 
   # When running from the plugin cache, run.sh and .venv may be missing even
