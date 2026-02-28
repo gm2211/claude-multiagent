@@ -17,6 +17,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PROJECT_DIR="${1:-$PWD}"
 
+# Beads DB scope:
+# - worktree (default): isolate issues per worktree using <worktree>/.beads-worktree/dolt
+# - shared/repo: use the main repo DB (<repo>/.beads/dolt)
+BEADS_DB_MODE="${CLAUDE_MULTIAGENT_BEADS_DB_MODE:-worktree}"
+REPO_ROOT="$(dirname "$(git -C "$PROJECT_DIR" rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null || true)"
+[[ -n "$REPO_ROOT" ]] || REPO_ROOT="$PROJECT_DIR"
+if [[ "$BEADS_DB_MODE" == "shared" || "$BEADS_DB_MODE" == "repo" ]]; then
+  BEADS_DB_PATH="${REPO_ROOT}/.beads/dolt"
+else
+  BEADS_DB_PATH="${PROJECT_DIR}/.beads-worktree/dolt"
+fi
+
 # Run a command with timeout.
 # Preference order:
 # 1) GNU timeout
@@ -215,14 +227,18 @@ has_dashboard_pane() {
 # These checks are project-scoped to avoid cross-project false positives.
 has_beads_process() {
   local project_dir="$1"
-  local repo_root
-  repo_root="$(dirname "$(git -C "$project_dir" rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null)" || repo_root="$project_dir"
+  local db_path="${2:-}"
 
   local pids pid cmdline
   pids=$(pgrep -f 'beads_tui' 2>/dev/null || true)
   for pid in $pids; do
     cmdline=$(ps -p "$pid" -o args= 2>/dev/null || true)
-    if [[ "$cmdline" == *"${repo_root}/.beads/dolt"* ]]; then
+    if [[ -n "$db_path" && "$cmdline" == *"$db_path"* ]]; then
+      echo 1
+      return
+    fi
+    # Fallback for worktree-scoped DBs when args are shell-expanded differently.
+    if [[ "$cmdline" == *"${project_dir}/.beads-worktree/dolt"* ]]; then
       echo 1
       return
     fi
@@ -391,7 +407,7 @@ fi
 # Fallback: if layout matching misses panes, use project-scoped process checks
 # to prevent duplicate pane creation.
 if [[ "$has_beads" -eq 0 ]]; then
-  has_beads=$(has_beads_process "$PROJECT_DIR")
+  has_beads=$(has_beads_process "$PROJECT_DIR" "$BEADS_DB_PATH")
 fi
 if [[ "$has_dashboard" -eq 0 ]]; then
   has_dashboard=$(has_watch_process "$PROJECT_DIR")
@@ -430,11 +446,16 @@ if $beads_pane_enabled && [[ "$has_beads" -eq 0 ]]; then
   # Create beads pane to the right of Claude. Focus moves to beads.
   BEADS_TUI_DIR="${SCRIPT_DIR}/beads-tui"
   _bd_path="$(command -v bd 2>/dev/null || true)"
-  # Resolve db path through git to the main repo root so worktrees find the
-  # actual Dolt database (which lives at <main-repo>/.beads/dolt, not in the
-  # worktree directory).
-  _repo_root="$(dirname "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null)" || _repo_root="$PROJECT_DIR"
-  BDT_ARGS=(--db-path "${_repo_root}/.beads/dolt")
+
+  # In worktree mode, lazily initialize this worktree's DB path if needed.
+  if [[ "$BEADS_DB_MODE" != "shared" && "$BEADS_DB_MODE" != "repo" ]]; then
+    mkdir -p "$(dirname "$BEADS_DB_PATH")" 2>/dev/null || true
+    if [[ -n "$_bd_path" && ! -d "$BEADS_DB_PATH" ]]; then
+      "$_bd_path" --db "$BEADS_DB_PATH" init --quiet >/dev/null 2>&1 || true
+    fi
+  fi
+
+  BDT_ARGS=(--db-path "$BEADS_DB_PATH")
   [[ -n "$_bd_path" ]] && BDT_ARGS+=(--bd-path "$_bd_path")
 
   # When running from the plugin cache, run.sh and .venv may be missing even
